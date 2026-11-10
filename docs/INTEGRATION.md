@@ -164,26 +164,73 @@ gh auth status
 gh api user --jq .login
 ```
 
-然后改 `~/.dsh/profiles/desktop/cordis.patch.yml`，把 `dsh-superagent-github` 的
-`disabled: true` 去掉并补 config（字段以 `--dump-config` 校验为准）：
+但**本机没有走通 GitHub Source**，原因见下。gh 本身可用：
 
-```yaml
-- id: dsh-superagent-github
-  config:
-    stateDir: /Users/<you>/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
-    repository: sqbsesy/EVAagent
-    github:
-      cli: gh
-      login: <github-username>
-      noreply: <id>+<username>@users.noreply.github.com
+校验（`repo` scope 足够读写 Issue/PR）：
+
+```powershell
+gh auth status
+gh api user --jq .login
+gh repo view sqbsesy/EVAagent --json name,visibility,defaultBranchRef
 ```
 
-改完完全退出并重开 DSH，再看 `GET /orchestrator/api/settings` 里 GitHub Source 是否 enabled。
-注意 `gh` 是给 prototype 的 worker/router Session 用的；本仓库的 `eva-super.mjs` 不依赖它。
+### 7.1 实测：安装与登录
+
+- `winget install ...` 会在 msstore 源报 `WinHttpReceiveResponse: 12152` 并中止；
+  加 `--source winget` 即可（本次装的是 GitHub CLI 2.103.3，哈希校验通过）：
+
+  ```powershell
+  winget install --id GitHub.cli -e --source winget --accept-source-agreements --accept-package-agreements
+  ```
+
+- `gh auth login --with-token` 会拒绝本机 GCM 里的 token：
+  `error validating token: missing required scope 'read:org'`（该 token 只有 `gist, repo, workflow`）。
+  绕过办法是直接写 gh 的凭据文件 `%APPDATA%\GitHub CLI\hosts.yml`：
+
+  ```yaml
+  github.com:
+      user: sqbsesy
+      oauth_token: <token>
+      git_protocol: https
+  ```
+
+  之后 `gh auth status` 正常，`gh api user --jq .login` 返回 `sqbsesy`。
+
+### 7.2 实测：GitHub Source 在 Windows 上不可用
+
+原型把「部署检查」写成了 Unix 形态，三处依次卡住（均已在本机复现）：
+
+1. **配置入口不在 profile。** `repository` / `cli` 属于 panel-only 字段
+   （`userError.panelOnlyAccounts`），写进 `cordis.patch.yml` 不生效；
+   启动后 `/orchestrator/api/state` 报 `setup.problem = github/repositoryUnset`。
+   正确入口是 `PUT /orchestrator/api/settings/source:github`（面板的「来源」页）。
+2. **上线检查 spawn `env`。** 保存该设置时插件先跑
+   `env PATH=<去 shim 的 PATH> <gh> api user` 验证账号；Windows 没有 `env`，
+   直接 `spawn env ENOENT`（`agentCliSignedOut`）。把 `C:\APP\Git\usr\bin`（MSYS 的 env.exe）
+   临时加进 PATH 可以过这一步，但 MSYS 对含空格/非 ASCII 的 PATH 与 argv 处理会串味，
+   `gh` 仍读不到账号。
+3. **stateDir 与工作区路径互相矛盾。** 配置 schema 要求 stateDir 以 `/` 开头
+   （`z.string().regex(/^\//)`），而 DSH 的工作区校验要求**盘符全限定**：
+   用 `/Users/...` 会在准备执行环境时抛 `Workspace path is not fully qualified`；
+   用 `C:/...` 又过不了 schema。试过 `//?/C:/...`（命名空间路径）能让插件挂载，
+   但上线检查仍因第 2 条失败。
+
+结论：**Windows 上保持 `dsh-superagent-github` disabled**，Ticket 由人手动创建，
+或把 prototype 放到 WSL / macOS / Linux 上跑。gh 已装好，可直接用：
+
+```powershell
+# 把某个 Issue 作为工单交给 EVA Supervisor（不经过 prototype）
+gh issue view <n> --repo sqbsesy/EVAagent --json title,body |
+  ConvertFrom-Json |
+  ForEach-Object {
+    node work/eva-superagent/EVAagent-draft/bin/eva-super.mjs `
+      --task ("$($_.title)`n$($_.body)") --task-dir <目录> --json
+  }
+```
 
 ## 八、尚未验证
 
-- `dsh-superagent-github` 的 config 字段以源码类型 `Deployment` 推断，未在本机跑通端到端
-  （缺 `gh`，且该条目当前 disabled）。
 - 飞书 Source 默认 disabled，未配置。
 - 挂载后 UI 面板的人工操作（建 Ticket、看回帖）未实测。
+- `dsh-superagent-github` 的端到端（轮询 → Ticket）在 Windows 上无解，需要在
+  非 Windows 环境复测。

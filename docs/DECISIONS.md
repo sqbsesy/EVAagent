@@ -43,8 +43,11 @@
 - prototype 的 profile 配置要点见 `docs/INTEGRATION.md` 与
   `integrations/dsh-superagent/profile.patch.example.yml`：桌面 profile 的 bundle 层已 insert
   `dsh-superagent` 条目但无 config，必须由 profile patch 补 `stateDir`（否则插件拒绝启动）。
-- 本机现状：`stateDir` 已补进 desktop profile 并做过启动联调（见下节）；`gh` 仍未安装，
-  GitHub Source 保持 `disabled`，端到端（事件→Ticket→CLI→回帖）尚未验证。
+- 本机现状：`stateDir` 已补进 desktop profile 并做过启动联调（见下节）；`gh` 2.103.3 已安装并登录
+  （`gh api user --jq .login` → `sqbsesy`），但 GitHub Source 在 Windows 上**不可用**，
+  保持 `disabled`，端到端（事件→Ticket→CLI→回帖）无法在本机验证。三处阻碍与绕过办法见
+  `docs/INTEGRATION.md` 第 7.2 节（panel-only 配置、上线检查 spawn Unix `env`、
+  `stateDir` 的 `/` 前缀与 DSH 盘符全限定冲突）。
 
 ## 仓库状态（2026-11-10）
 
@@ -69,4 +72,5 @@
 1. 充值或指定可用 provider 后跑 10 题回放（`bin/eva-replay.mjs`），按四项指标验收；
 2. 视回放结果调 `agents/*.md` 契约与并发/预算参数；
 3. 决定是否把 `runs/` 只读视图挂到控制台（D2 后期）；
-4. 网络/凭据就绪后完成首次推送，并在 profile patch 里补 prototype 的 `stateDir` 做端到端联调。
+4. GitHub Source 若确需自动接单，需在 WSL/macOS/Linux 上跑 prototype；Windows 本机用
+   `gh issue view` + `eva-super.mjs --task` 手动转工单。
