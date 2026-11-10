@@ -69,11 +69,18 @@ node <repo>/bin/eva-super.mjs \
 ```yaml
 - id: dsh-superagent
   config:
-    stateDir: C:/Users/<you>/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
+    stateDir: /Users/<you>/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
     promptMaxChars: 6000
     admissionContextMaxPages: 3
     admissionContextTimeoutMs: 20000
 ```
+
+> **Windows 注意**：`stateDir` 的 schema 是 `z.string().regex(/^\//)`，只接受**以 `/` 开头**的路径。
+> 写 `C:/Users/...` 会在启动时报
+> `invalid config: - $.stateDir expect string to match regexp /^\// (at stateDir)`，
+> 插件不激活（日志里是 `warning: 1 entry did not activate`）。
+> 本机可用 `/Users/<you>/...`：Node 在 Windows 上把它解析为当前盘符根目录下的路径（本机即 `C:`），
+> 实测 `orchestrator.sqlite` 正确落在 `C:\Users\...` 目录。
 
 模板见仓库 `integrations/dsh-superagent/profile.patch.example.yml`。要点：
 
@@ -93,9 +100,39 @@ node <repo>/bin/eva-super.mjs \
 - prototype 产物：`<stateDir>/orchestrator.sqlite`、`<stateDir>/work/<ticket>/`。
 - 两者通过 `stateDir` 与 `meta.task` 关联；排查时先看 `runs/<runId>/events.jsonl`，再看 Ticket 记录。
 
-## 六、尚未验证
+## 六、本机落地与验证（2026-11-10）
+
+已改动 `~/.dsh/profiles/desktop/cordis.patch.yml`（备份：`cordis.patch.yml.bak-sat-20261110122508`）：
+
+```yaml
+- id: dsh-superagent
+  config:
+    stateDir: /Users/20606/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
+    promptMaxChars: 6000
+    admissionContextMaxPages: 3
+    admissionContextTimeoutMs: 20000
+- id: dsh-superagent-github
+  disabled: true
+```
+
+联调方式与结果（不改动正在运行的 desktop 实例）：把 desktop profile 复制成临时档 `satcheck`
+（`node_modules` 用 junction 指回 desktop），用 `--dump-config` 与真实启动验证，验证后删除临时档。
+
+| 检查 | 结果 |
+| --- | --- |
+| patch 解析并覆盖 bundle 条目 | ✅ 输出里有 `# == dsh-superagent-prototype, patched by ...` |
+| 插件激活 | ✅ 无 `did not activate` 告警 |
+| 状态目录落盘 | ✅ `prototype-state/orchestrator.sqlite`（含 `-shm`/`-wal`） |
+| 面板后端 | ✅ `GET /orchestrator/api/tickets` → `{"items":[],"total":0,...}`；`/settings`、`/prompts` 均 200 |
+| GitHub Source | ⏸ 未启用（`disabled: true`，缺 `gh`） |
+
+生效条件：**完全退出并重开 DSH**。重开后 Web 面板地址为 `/orchestrator`（服务端只注册
+`/orchestrator/api/*`，裸 `/orchestrator` 返回 404 属正常；同源校验要求请求头
+`x-orchestrator-request: 1`）。
+
+## 七、尚未验证
 
 - `dsh-superagent-github` 的 config 字段以源码类型 `Deployment` 推断，未在本机跑通端到端
-  （缺 `gh`，且 profile 尚未加 patch）。
+  （缺 `gh`，且该条目当前 disabled）。
 - 飞书 Source 默认 disabled，未配置。
-- 面板（`/client`）未实际操作验证。
+- 挂载后 UI 面板的人工操作（建 Ticket、看回帖）未实测。

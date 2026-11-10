@@ -50,6 +50,12 @@
 
 - 已 `git init`（本地 main），提交 `P0: EVA Supervisor CLI with ticket mode and dsh-superagent-prototype integration`。
 - **已推送** `https://github.com/sqbsesy/EVAagent`（`main`，`origin` 跟踪，凭据由 Git Credential Manager 保存）。
+- **prototype 已挂进 desktop profile 并联调通过**：patch 加 `- id: dsh-superagent` + `stateDir`，
+  `dsh-superagent-github` 先 `disabled: true`（缺 gh）。用临时克隆档 `satcheck` 验证：插件激活、
+  `prototype-state/orchestrator.sqlite` 落盘、`/orchestrator/api/{tickets,settings,prompts}` 均 200；
+  验证后删除临时档。生效需完全退出并重开 DSH。
+  - 关键坑：`stateDir` schema 为 `/^\//`，Windows 上必须写 `/Users/...` 而非 `C:/...`，
+    否则报 `$.stateDir expect string to match regexp /^\//` 且插件不激活。
 - **live 运行仍被余额阻塞**：`sdk` profile 仅注册 `deepseek-account` 适配器，返回
   `Insufficient Balance (request_id: ...)`；已试 `--patch` 挂 `dsh-our-free-model`，插件能加载但
   未注册 `our-free-model` 适配器（Host 半身绑定 desktop 的 web 组合），不可用。10 题回放待充值。

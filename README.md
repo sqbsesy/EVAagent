@@ -3,7 +3,7 @@
 > 状态：**P0 已实现**（CLI 可跑，离线链路自测 11/11；含工单模式）。live 运行需可用的模型 provider
 > （当前 `deepseek-account` 欠费）。决策见 `docs/DECISIONS.md`；可行性分析见
 > `work/eva-superagent/FEASIBILITY-2026-11-10.md`；与 `dsh-superagent-prototype` 的对接见
-> `docs/INTEGRATION.md`。
+> `docs/INTEGRATION.md`（已挂进 desktop profile，面板后端联调通过；GitHub Source 待 `gh`）。
 
 ## 这是什么
 
