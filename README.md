@@ -1,9 +1,11 @@
 # EVAagent（P0）
 
-> 状态：**P0 已实现**（CLI 可跑，离线链路自测 11/11；含工单模式）。live 运行需可用的模型 provider
-> （当前 `deepseek-account` 欠费）。决策见 `docs/DECISIONS.md`；可行性分析见
-> `work/eva-superagent/FEASIBILITY-2026-11-10.md`；与 `dsh-superagent-prototype` 的对接见
-> `docs/INTEGRATION.md`（已挂进 desktop profile，面板后端联调通过；GitHub Source 待 `gh`）。
+> 状态：**P0 已实现**（CLI 可跑，离线链路自测 15/15；含工单模式）。P1 已落地：usage 缺失时按
+> 提示词+工具输出估算并放大（`estimateMultiplier`）、单题预算跨 run 累计（`perChallengeTokens` 扣历史）、
+> 3 题基准脚本 `eva-bench`。live 运行需可用的模型 provider（当前 `deepseek-account` 欠费）。决策见
+> `docs/DECISIONS.md`；可行性分析见 `work/eva-superagent/FEASIBILITY-2026-11-10.md`；与
+> `dsh-superagent-prototype` 的对接见 `docs/INTEGRATION.md`（已挂进 desktop profile，面板后端联调通过；
+> GitHub Source 在 Windows 不可用，已回退为 disabled，理由见该文档）。
 
 ## 这是什么
 
@@ -35,7 +37,7 @@ EVA 的 **Supervisor 层**：一个负责侦察、分流、拆解、分派、仲
 | `workflows/` | DSH workflow 脚本（扇出与复核） |
 | `policies/` | 预算、提交、工具白名单硬闸 |
 | `lib/` | SDK JSON-RPC 客户端、台账、上下文、提示词、编排 |
-| `bin/` | `eva-super`（入口）、`eva-submit`（提交）、`eva-replay`（回放） |
+| `bin/` | `eva-super`（入口）、`eva-submit`（提交）、`eva-replay`（回放）、`eva-bench`（3 题基准） |
 | `test/` | 离线自测（`node test/selftest.mjs`） |
 | `integrations/` | 与外部编排器对接的示例配置（`dsh-superagent` profile patch） |
 | `runs/` | 运行产物（gitignored） |
@@ -68,6 +70,12 @@ node bin/eva-submit.mjs --run runs/<runId> --confirm
 
 # 5) 回放评测
 node bin/eva-replay.mjs --run runs/<runId>
+
+# 6) 3 题基准（顺序跑，遇余额/适配器错误立即中止）
+node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --max-seconds 1500
+
+# 7) 忽略单题历史用量（同题重跑、想拿满单 run 预算时）
+node bin/eva-super.mjs --challenge work/<题目目录> --ignore-prior
 ```
 
 产出：`runs/<runId>/{meta,plan,state,events.jsonl,ledger,verdict,result,report}.json|md`

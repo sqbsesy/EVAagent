@@ -7,11 +7,13 @@
   "bin": {
     "eva-super": "bin/eva-super.mjs",
     "eva-submit": "bin/eva-submit.mjs",
-    "eva-replay": "bin/eva-replay.mjs"
+    "eva-replay": "bin/eva-replay.mjs",
+    "eva-bench": "bin/eva-bench.mjs"
   },
   "scripts": {
     "selftest": "node test/selftest.mjs",
-    "dry-run": "node bin/eva-super.mjs --dry-run"
+    "dry-run": "node bin/eva-super.mjs --dry-run",
+    "bench": "node bin/eva-bench.mjs"
   },
   "engines": {
     "node": ">=22"

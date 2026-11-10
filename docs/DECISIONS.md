@@ -49,7 +49,18 @@
   `docs/INTEGRATION.md` 第 7.2 节（panel-only 配置、上线检查 spawn Unix `env`、
   `stateDir` 的 `/` 前缀与 DSH 盘符全限定冲突）。
 
-## 仓库状态（2026-11-10）
+## P1：计量、跨 run 预算、基准脚本（2026-11-10）
+
+- **计量修正**：`sdk.mjs` 从工具事件累计 `toolChars`；`usage` 缺失时
+  `Ledger.addEstimate()` 按 `(prompt+reply+toolChars)/3.5` 估算并乘 `budget.estimateMultiplier`
+  （默认 1.5），条目保留 `raw` 便于审计。理由：live 首跑 usage=null，旧逻辑只记 856 tok，
+  与真实工具面（~57k tok 常驻）相差两个数量级。
+- **跨 run 预算**：`lib/budget.mjs` 的 `challengeSpent()` 取
+  `runs/*/meta.json`+`result.json` 与 `.dsh/memory/costs.jsonl` 两者较大值，dry-run 不计；
+  `effectiveRunBudget()` 返回 `min(perRun, perChallenge-prior)`，<=0 立即 `config-error`。
+  理由：单题 3.5M 是「本题」总量，不是「每次 run」额度。
+- **基准脚本**：`bin/eva-bench.mjs` 顺序跑 N 题、写 `runs/bench-<stamp>/bench.{json,md}`，
+  遇余额/适配器错误立即中止（exit 3）。默认 `easycap,bluetrace,lfsr`。
 
 - 已 `git init`（本地 main），提交 `P0: EVA Supervisor CLI with ticket mode and dsh-superagent-prototype integration`。
 - **已推送** `https://github.com/sqbsesy/EVAagent`（`main`，`origin` 跟踪，凭据由 Git Credential Manager 保存）。

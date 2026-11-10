@@ -11,6 +11,7 @@ import { composeWorker } from '../lib/prompts.mjs'
 import { orchestrate } from '../lib/run.mjs'
 import { MockBridge } from '../lib/sdk.mjs'
 import { listFiles, renderFileList, resolveChallenge } from '../lib/context.mjs'
+import { effectiveRunBudget, spentFromRuns } from '../lib/budget.mjs'
 
 let passed = 0
 const failures = []
@@ -56,6 +57,51 @@ await test('Ledger：累计、估算标记、超预算置位', () => {
   ledger.add({ role: 'worker', tokens: 60 })
   assert.throws(() => ledger.check('worker'), BudgetStop)
   assert.equal(ledger.stopped, 'budget-exhausted')
+})
+
+await test('budget：effectiveRunBudget 取小并扣历史', () => {
+  assert.deepEqual(effectiveRunBudget({ perRunTokens: 1000, perChallengeTokens: 0, priorSpent: 500 }), {
+    budget: 1000,
+    priorSpent: 500,
+    remaining: null,
+  })
+  assert.equal(effectiveRunBudget({ perRunTokens: 1000, perChallengeTokens: 3000, priorSpent: 2500 }).budget, 500)
+  assert.equal(effectiveRunBudget({ perRunTokens: 1000, perChallengeTokens: 3000, priorSpent: 4000 }).budget, 0)
+})
+
+await test('budget：从 runs 台账聚合单题历史', () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-budget-'))
+  for (const [name, challenge, spent] of [
+    ['20261110000000-aaaaaa', 'easycap', 1200],
+    ['20261110000001-bbbbbb', 'easycap', 800],
+    ['20261110000002-cccccc', 'other', 9999],
+  ]) {
+    const dir = path.join(out, name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ challenge }))
+    fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify({ spent }))
+  }
+  assert.equal(spentFromRuns(out, 'easycap').total, 2000)
+  assert.equal(spentFromRuns(out, 'easycap', { excludeRunId: '20261110000000-aaaaaa' }).total, 800)
+  fs.rmSync(out, { recursive: true, force: true })
+})
+
+await test('Ledger：估算放大与 raw 记录', () => {
+  const ledger = new Ledger({ budget: 1000 })
+  ledger.addEstimate({ role: 'worker', prompt: 'x'.repeat(70), reply: '', toolChars: 35, multiplier: 1.5 })
+  // 70+35=105 字符 → 30 raw，放大 1.5 → 45
+  assert.equal(ledger.total, 45)
+  assert.equal(ledger.estimatedTotal, 45)
+  assert.equal(ledger.entries[0].raw, 30)
+})
+
+await test('Ledger：prior 计入收敛与硬闸', () => {
+  const ledger = new Ledger({ budget: 100, convergeAt: 0.5, priorSpent: 60 })
+  ledger.add({ role: 'worker', tokens: 10 })
+  assert.equal(ledger.effectiveTotal, 70)
+  assert.equal(ledger.shouldConverge(), true)
+  ledger.add({ role: 'worker', tokens: 40 })
+  assert.throws(() => ledger.check('worker'), BudgetStop)
 })
 
 await test('composeWorker：含任务字段与输出契约', () => {

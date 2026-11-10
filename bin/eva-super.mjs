@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { orchestrate } from '../lib/run.mjs'
 import { DshBridge, MockBridge, DEFAULT_EXE } from '../lib/sdk.mjs'
 import { findWorkspace, resolveChallenge, listFiles } from '../lib/context.mjs'
+import { challengeSpent } from '../lib/budget.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -50,6 +51,7 @@ function usage() {
   --workspace <dir>   指定 EVA 工作区（默认向上查找 _tools/eva/toolgate.mjs）
   --task-dir <dir>    工单模式的工作目录（默认当前目录）
   --out <dir>         运行产物目录（默认 <repo>/runs）
+  --ignore-prior      忽略本题历史用量（默认会从 costs.jsonl 与历史 runs 扣减单题预算）
   --dry-run           用 MockBridge 跑通全链路，不拉起运行时、不烧 token
   --json              只输出一行结果 JSON
   --help              显示本帮助
@@ -108,6 +110,12 @@ if (!dryRun) {
 const outRoot = path.resolve(typeof args.out === 'string' ? args.out : path.join(ROOT, 'runs'))
 fs.mkdirSync(outRoot, { recursive: true })
 
+// 单题历史用量：costs.jsonl 与历史 runs 取较大者；--ignore-prior 可跳过（重跑对照用）。
+let prior = { total: 0, source: 'none' }
+if (!taskText && !args['ignore-prior']) {
+  prior = challengeSpent({ workspace, challenge: path.basename(challengeDir), outRoot })
+}
+
 const model = typeof args.model === 'string' ? args.model : process.env.EVA_DSH_MODEL ?? ''
 const provider = typeof args.provider === 'string' ? args.provider : process.env.EVA_DSH_PROVIDER ?? ''
 const files = listFiles(challengeDir)
@@ -117,6 +125,10 @@ if (!args.json) {
   if (taskText) console.log(`[eva-super] task=${taskText.split('\n')[0].slice(0, 120)}`)
   console.log(`[eva-super] workspace=${workspace}`)
   console.log(`[eva-super] files=${files.length} budget=${budgetConfig.perRunTokens} workers=${budgetConfig.workerMax} mode=${dryRun ? 'dry-run' : 'live'}`)
+  if (prior.total > 0) {
+    const remaining = Math.max(0, Number(budgetConfig.perChallengeTokens || 0) - prior.total)
+    console.log(`[eva-super] 本题历史用量=${prior.total} tok（来源 ${prior.source}），单题余额≈${remaining}`)
+  }
 }
 
 const controller = new AbortController()
@@ -144,6 +156,7 @@ const result = await orchestrate({
   dryRun,
   signal: controller.signal,
   taskText,
+  priorSpent: prior.total,
   logger: args.json ? () => {} : (line) => console.log(line),
 })
 const elapsed = Math.round((Date.now() - started) / 1000)
@@ -156,7 +169,11 @@ if (args.json) {
       verdict: result.verdict.verdict,
       candidate: Boolean(result.verdict.candidate),
       spent: result.spent,
+      spentTotal: result.spentTotal,
+      priorSpent: result.priorSpent,
       budget: result.budget,
+      estimated: result.estimated,
+      reasons: result.verdict.reasons ?? [],
       elapsedSec: elapsed,
       runDir: result.runDir,
     }),
