@@ -96,6 +96,10 @@ for (const challenge of challenges) {
   if (args['ignore-prior']) argv.push('--ignore-prior')
   if (args.budget) argv.push('--budget', String(args.budget))
   if (args.workers) argv.push('--workers', String(args.workers))
+  // live provider 透传：bench 与单题用同一套 patch/provider/model。
+  for (const key of ['patch', 'provider', 'model']) {
+    if (args[key]) argv.push(`--${key}`, String(args[key]))
+  }
 
   console.log(`[eva-bench] ▶ ${challenge}`)
   const proc = spawnSync(process.execPath, argv, {
