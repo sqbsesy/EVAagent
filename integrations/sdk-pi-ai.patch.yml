@@ -1,0 +1,28 @@
+# 给 sdk 档补一个可用的 provider：pi-ai 适配器 + 千问 token-plan 兼容端点。
+#
+# 用法：
+#   node bin/eva-super.mjs --challenge work/<题目> \
+#     --patch integrations/sdk-pi-ai.patch.yml \
+#     --provider qwen-token-plan-cn --model deepseek-v4.1-flash
+#
+# 说明：
+# - 这是 DSH 的 `--patch` 覆盖层（顶层 YAML 数组；`insert` 追加新插件行）。
+# - 密钥不写进本文件：apiKeyEnv 指向环境变量名，key 由进程环境提供。
+# - provider 路由名、baseURL、模型 id 需与你的环境一致；下面是本机 desktop profile
+#   在用的那一条（与 `~/.dsh/profiles/desktop/cordis.patch.yml` 保持同步）。
+- insert:
+    - id: llm-pi-ai
+      name: '@deepseek-ai/dsh-llm-pi-ai'
+      config:
+        providers:
+          qwen-token-plan-cn:
+            baseURL: https://maas.qianwenaiapi.com/compatible-mode/v1
+            models:
+              - id: deepseek-v4.1-flash
+                name: DeepSeek V4.1 Flash
+                contextWindow: 1000000
+                maxTokens: 384000
+                input:
+                  - text
+                  - image
+            apiKeyEnv: QWEN_TOKEN_PLAN_CN_API_KEY

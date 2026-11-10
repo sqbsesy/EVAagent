@@ -225,6 +225,68 @@ await test('orchestrate：账号级错误整条中止为 config-error', async ()
   assert.ok(!fs.existsSync(path.join(challenge, 'super', 't1')))
 })
 
+await test('orchestrate：候选文件落盘后成为待提交候选', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal4-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'x')
+  fs.mkdirSync(path.join(challenge, 'super', 't1'), { recursive: true })
+  fs.writeFileSync(path.join(challenge, 'super', 't1', 'candidate.txt'), 'FLAG:test-only\n')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs4-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 1, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 1 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () =>
+      new MockBridge({ finding: { candidate: '', candidateFile: 'super/t1/candidate.txt', confidence: 0.95 } }),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.equal(result.status, 'verified')
+  assert.equal(result.verdict.candidate, 'file:super/t1/candidate.txt')
+  const pending = JSON.parse(fs.readFileSync(path.join(result.runDir, 'submissions', 'pending.json'), 'utf8'))
+  assert.equal(pending.candidateFile, 'super/t1/candidate.txt')
+})
+
+await test('orchestrate：候选文件越界或二进制被拒', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal5-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'x')
+  fs.writeFileSync(path.join(challenge, 'bin.dat'), Buffer.from([0, 1, 2, 3]))
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs5-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 1, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 1 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge({ finding: { candidate: '', candidateFile: '../../outside.txt', confidence: 0.9 } }),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.equal(result.verdict.candidate, '')
+  assert.equal(result.status, 'failed')
+})
+
+await test('orchestrate：worker 不认答案时兜底扫描成候选', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal6-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'x')
+  fs.mkdirSync(path.join(challenge, 'super', 't1'), { recursive: true })
+  fs.writeFileSync(path.join(challenge, 'super', 't1', 'raw.bin'), 'FLAG:scan-only-123\n')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs6-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 1, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 1 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge({ finding: { candidate: '', candidateFile: '', confidence: 0.9 } }),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.match(result.verdict.candidate, /^file:super\/_candidate\.txt$/)
+  assert.match(fs.readFileSync(path.join(challenge, 'super', '_candidate.txt'), 'utf8'), /FLAG:scan-only-123/)
+})
+
 console.log('')
 if (failures.length) {
   console.error(`${passed} passed, ${failures.length} failed`)

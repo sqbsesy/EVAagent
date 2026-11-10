@@ -89,6 +89,25 @@
   `Insufficient Balance (request_id: ...)`；已试 `--patch` 挂 `dsh-our-free-model`，插件能加载但
   未注册 `our-free-model` 适配器（Host 半身绑定 desktop 的 web 组合），不可用。10 题回放待充值。
 
+## 工具链修复与计量口径（2026-11-10 晚）
+
+- **审批无人应答是「每轮挂 5–12 分钟」的真因**：SDK 运行时在 `initialize` 传
+  `approvalRequests:true` 时，会把 `approval/request` 反向发回客户端，要求回
+  `{outcome:"allowed-once"|"rejected"}`；此前 `lib/sdk.mjs` 忽略所有带 id 的入站请求，
+  工具调用一直等到超时。现在 `answerInbound()` 统一应答，策略由 `EVA_DSH_APPROVAL`/构造参数控制（默认 allow）。
+- **usage 只在 `assistant/message` 与 `turn/end` 上**，`step/end` 没有；`turn/end.usage` 是聚合值。
+  `addUsage()` 现在同时累计 `cacheReadTokens`。
+- **计量按缓存权重折算**：`usage.totalTokens` 含缓存读（一次 worker 轮次原始 3.1 M，缓存占 90%+），
+  全额计入会让 1.2 M 预算在单轮内爆掉。改为 `input+output+cacheRead*cacheWeight`，
+  `cacheWeight=0.1` 写在 `policies/budget.json`；原始值存 `ledger.entries[].raw` 与 `turn/end.rawTokens`。
+- **单轮落账后立刻 `ledger.check()`**：超预算的 run 以 `partial` + `budget-exhausted` 收尾，
+  不再继续跑后面的 worker。
+- **候选默认落盘**：worker 输出 `candidateFile`（工作区或题目目录内、纯文本、≤2KB）；
+  `verdict.json`/`pending.json` 只记 `file:<相对路径>`；`eva-submit` 从文件读第一行。
+- **兜底扫描**：worker 常把还原出的答案当「中间产物」（本轮 `raw38.bin` 就是 `FLAG:...`），
+  没人认领时在 `<题目>/super/` 下按 flag 形态扫本轮新写文本，命中即写 `super/_candidate.txt`
+  并以 `file:` 形式进入复核；事件 `candidate/scan`。
+
 ## 下一步
 
 1. 充值或指定可用 provider 后跑 10 题回放（`bin/eva-replay.mjs`），按四项指标验收；

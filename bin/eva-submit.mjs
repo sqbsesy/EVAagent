@@ -65,7 +65,18 @@ if (!fs.existsSync(runDir)) {
 let flag = typeof args.flag === 'string' ? args.flag : ''
 const pendingFile = path.join(runDir, 'submissions', 'pending.json')
 if (!flag && fs.existsSync(pendingFile)) {
-  flag = JSON.parse(fs.readFileSync(pendingFile, 'utf8')).candidate ?? ''
+  const pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8'))
+  // 候选文件路径是「相对工作区」的；工作区从 cwd 往上找 _tools/eva/toolgate.mjs。
+  if (pending.candidateFile) {
+    const workspace = findWorkspace(process.cwd()) ?? path.resolve(ROOT, '..', '..')
+    const file = path.resolve(workspace, pending.candidateFile)
+    if (fs.existsSync(file)) flag = fs.readFileSync(file, 'utf8').trim().split(/\r?\n/)[0].trim()
+  }
+  if (!flag) flag = pending.candidate ?? ''
+}
+if (flag.startsWith('file:')) {
+  console.error(`[eva-submit] 候选文件读不到：${flag.slice(5)}（检查它是否还在工作区里）`)
+  process.exit(3)
 }
 if (!flag) {
   console.error('[eva-submit] 没有候选 flag：请先跑 eva-super，或用 --flag 指定。')

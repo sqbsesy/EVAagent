@@ -48,6 +48,7 @@ function usage() {
   --workers <n>       覆盖并发上限（默认 2，受内存约束）
   --model <id>        覆盖模型（默认沿用 sdk profile）
   --provider <id>     覆盖 provider
+  --patch <file>      传给 sdk 运行时的 --patch 覆盖层（给 sdk 档加 provider 适配器）
   --workspace <dir>   指定 EVA 工作区（默认向上查找 _tools/eva/toolgate.mjs）
   --task-dir <dir>    工单模式的工作目录（默认当前目录）
   --out <dir>         运行产物目录（默认 <repo>/runs）
@@ -118,6 +119,7 @@ if (!taskText && !args['ignore-prior']) {
 
 const model = typeof args.model === 'string' ? args.model : process.env.EVA_DSH_MODEL ?? ''
 const provider = typeof args.provider === 'string' ? args.provider : process.env.EVA_DSH_PROVIDER ?? ''
+const patchPath = typeof args.patch === 'string' ? args.patch : process.env.EVA_DSH_PATCH ?? ''
 const files = listFiles(challengeDir)
 
 if (!args.json) {
@@ -141,7 +143,12 @@ process.on('SIGINT', onSigint)
 const bridgeFactory = () =>
   dryRun
     ? new MockBridge({ cwd: workspace })
-    : new DshBridge({ cwd: workspace, provider: provider || undefined, model: model || undefined })
+    : new DshBridge({
+        cwd: workspace,
+        provider: provider || undefined,
+        model: model || undefined,
+        extraArgs: patchPath ? ['--patch', path.resolve(patchPath)] : [],
+      })
 
 const started = Date.now()
 const result = await orchestrate({

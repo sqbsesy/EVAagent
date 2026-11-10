@@ -1,8 +1,16 @@
 # EVAagent（P0）
 
-> 状态：**P0 已实现**（CLI 可跑，离线链路自测 15/15；含工单模式）。P1 已落地：usage 缺失时按
+> 状态：**P0 已实现**（CLI 可跑，离线链路自测 19/19；含工单模式）。**2026-11-10 首条 live 通过**：
+> `easycap` 跑出 `verified / pass`，1.40 M tok（缓存折算后）、24.8 min，候选由 t1 落盘并经独立复核
+> （`runs/20261110110922-f5f9ee`）。P1 已落地：usage 缺失时按
 > 提示词+工具输出估算并放大（`estimateMultiplier`）、单题预算跨 run 累计（`perChallengeTokens` 扣历史）、
-> 3 题基准脚本 `eva-bench`。live 运行需可用的模型 provider（当前 `deepseek-account` 欠费）。决策见
+> 3 题基准脚本 `eva-bench`；账号级错误（欠费/无适配器）整条中止为 `config-error`。
+> 计量以运行时 `turn/end` 的 usage 为准，缓存读按 `cacheWeight=0.1` 折算（`totalTokens` 含缓存读，
+> 全额计入会让预算失效）；每轮落账后立即校验，超预算停在 `partial`。
+> 候选结果默认**落盘**：worker 只回 `candidateFile`，`verdict.json`/`pending.json` 记 `file:<相对路径>`，
+> flag 原文不进对话、不进报告；`eva-submit` 从该文件读第一行。
+> sdk 档的 live provider 用 `--patch integrations/sdk-pi-ai.patch.yml`（pi-ai + 千问 token-plan），
+> 见下文「live provider」；默认的 `deepseek-account` 当时欠费。决策见
 > `docs/DECISIONS.md`；可行性分析见 `work/eva-superagent/FEASIBILITY-2026-11-10.md`；与
 > `dsh-superagent-prototype` 的对接见 `docs/INTEGRATION.md`（已挂进 desktop profile，面板后端联调通过；
 > GitHub Source 在 Windows 不可用，已回退为 disabled，理由见该文档）。
@@ -64,6 +72,11 @@ node bin/eva-super.mjs --task "<工单标题+要点>" --task-dir <当前目录> 
 # 3) 真跑（需要可用 provider；默认沿用 sdk profile）
 node bin/eva-super.mjs --challenge work/<题目目录> --budget 1200000
 
+# 3b) 真跑且给 sdk 档补 provider（pi-ai + 千问 token-plan）
+node bin/eva-super.mjs --challenge work/<题目目录> \
+  --patch integrations/sdk-pi-ai.patch.yml \
+  --provider qwen-token-plan-cn --model deepseek-v4.1-flash
+
 # 4) 复核通过后人工提交（先看脱敏预览）
 node bin/eva-submit.mjs --run runs/<runId> --dry-run
 node bin/eva-submit.mjs --run runs/<runId> --confirm
@@ -80,6 +93,19 @@ node bin/eva-super.mjs --challenge work/<题目目录> --ignore-prior
 
 产出：`runs/<runId>/{meta,plan,state,events.jsonl,ledger,verdict,result,report}.json|md`
 与 `turns/`、`submissions/`。
+
+## live provider
+
+sdk 档自带适配器只有 `deepseek-account`。要用别的 provider，用 `--patch` 把适配器插件插进 sdk 运行时：
+
+| 路线 | 做法 | 状态 |
+| --- | --- | --- |
+| `deepseek-account` | 默认 | 本机当时欠费（`Insufficient Balance`） |
+| pi-ai + 千问 token-plan | `--patch integrations/sdk-pi-ai.patch.yml --provider qwen-token-plan-cn --model deepseek-v4.1-flash` | 已接进 sdk，用 `apiKeyEnv: QWEN_TOKEN_PLAN_CN_API_KEY` 读环境变量 |
+| `our-free-model`（desktop 插件） | `--patch` 挂 `dsh-our-free-model` | sdk 里适配器能注册，但出站不可用：`UPSTREAM_BASE` 默认 `https://opencode.ai`（本机被重置），本地 relay 只随 web 半身启动 |
+
+等价的环境变量：`EVA_DSH_PATCH`（patch 文件）、`EVA_DSH_PROVIDER`、`EVA_DSH_MODEL`。
+patch 文件是 DSH 覆盖层：**顶层 YAML 数组**，新增插件用 `- insert: [ ... ]`；密钥只写环境变量名，不入库。
 
 ## 退出码
 
