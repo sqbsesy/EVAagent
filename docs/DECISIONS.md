@@ -43,8 +43,8 @@
 - prototype 的 profile 配置要点见 `docs/INTEGRATION.md` 与
   `integrations/dsh-superagent/profile.patch.example.yml`：桌面 profile 的 bundle 层已 insert
   `dsh-superagent` 条目但无 config，必须由 profile patch 补 `stateDir`（否则插件拒绝启动）。
-- 本机现状：prototype 已作为依赖装进 desktop profile，但 profile patch 尚未加 `stateDir`；
-  `gh` 未安装，GitHub Source 未启用，端到端未验证。
+- 本机现状：`stateDir` 已补进 desktop profile 并做过启动联调（见下节）；`gh` 仍未安装，
+  GitHub Source 保持 `disabled`，端到端（事件→Ticket→CLI→回帖）尚未验证。
 
 ## 仓库状态（2026-11-10）
 
@@ -56,6 +56,10 @@
   验证后删除临时档。生效需完全退出并重开 DSH。
   - 关键坑：`stateDir` schema 为 `/^\//`，Windows 上必须写 `/Users/...` 而非 `C:/...`，
     否则报 `$.stateDir expect string to match regexp /^\//` 且插件不激活。
+- **推送通道**：本机对 `github.com:443` 时通时断，`.git` 推送多次超时/重置；改用
+  `api.github.com`（稳定可达）+ Git Data API 生成同一 tree 的提交并 PATCH ref，
+  SHA 会因消息末尾换行被规范化而与本地不同，随后在本地 `hash-object -w` 重建并
+  `update-ref` 对齐（脚本 `work/eva-superagent/_scratch/api-push.mjs`）。
 - **live 运行仍被余额阻塞**：`sdk` profile 仅注册 `deepseek-account` 适配器，返回
   `Insufficient Balance (request_id: ...)`；已试 `--patch` 挂 `dsh-our-free-model`，插件能加载但
   未注册 `our-free-model` 适配器（Host 半身绑定 desktop 的 web 组合），不可用。10 题回放待充值。
