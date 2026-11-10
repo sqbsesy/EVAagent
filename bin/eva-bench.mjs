@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 // 批量回放：按顺序跑若干道题，汇总 pass / token / 墙钟，产出可对比的 bench 报告。
 // 用法：
 //   node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr
@@ -51,7 +51,7 @@ function usage() {
   --workers <n>        并发覆盖
   --dry-run            用 mock 跑
   --ignore-prior       不扣本题历史用量（重新计时）
-  --max-seconds <n>    单题墙钟上限（默认 1800）
+  --max-seconds <n>    单题墙钟上限（默认 3600；verifier 慢，1800 常被截断）
   --help               显示本帮助
 
 遇到余额/适配器/配置类失败会立即中止后续题目，避免空转烧配额。`)
@@ -81,7 +81,7 @@ if (!challenges.length) {
 }
 
 const outRoot = path.resolve(typeof args.out === 'string' ? args.out : path.join(ROOT, 'runs'))
-const maxSeconds = Number(args['max-seconds'] ?? 1800) || 1800
+const maxSeconds = Number(args['max-seconds'] ?? 3600) || 3600
 const workspace = path.resolve(typeof args.workspace === 'string' ? args.workspace : findWorkspace(process.cwd()))
 const benchDir = path.join(outRoot, `bench-${nowStamp()}`)
 fs.mkdirSync(benchDir, { recursive: true })
