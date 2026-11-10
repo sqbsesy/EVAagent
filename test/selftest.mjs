@@ -204,6 +204,27 @@ await test('orchestrate：预算不足时触发硬闸并写 partial', async () =
   assert.ok(result.verdict.reasons.join(' ').includes('预算闸'))
 })
 
+await test('orchestrate：账号级错误整条中止为 config-error', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal3-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'x')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs3-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 2, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 2 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge({ failWith: 'Insufficient Balance (request_id: test)' }),
+    dryRun: false,
+    logger: () => {},
+  })
+  assert.equal(result.status, 'config-error')
+  assert.equal(result.exitCode, 3)
+  assert.match(result.verdict.reasons.join(' '), /Insufficient Balance/)
+  // 不能降级成单线任务继续跑
+  assert.ok(!fs.existsSync(path.join(challenge, 'super', 't1')))
+})
+
 console.log('')
 if (failures.length) {
   console.error(`${passed} passed, ${failures.length} failed`)
