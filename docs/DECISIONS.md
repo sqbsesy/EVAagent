@@ -62,7 +62,18 @@
 - **基准脚本**：`bin/eva-bench.mjs` 顺序跑 N 题、写 `runs/bench-<stamp>/bench.{json,md}`，
   遇余额/适配器错误立即中止（exit 3）。默认 `easycap,bluetrace,lfsr`。
 
-- 已 `git init`（本地 main），提交 `P0: EVA Supervisor CLI with ticket mode and dsh-superagent-prototype integration`。
+## 基准首跑与账号闸（2026-11-10）
+
+- `eva-bench --challenges easycap,bluetrace,lfsr` 首跑 **0/3**：三题均在 recon 回合返回
+  `Insufficient Balance (request_id: ...)`，合计 4,354 tok（全部为估算，usage=null），112 s。
+  单题复测 `--challenge easycap` 同样 22 s 内失败，证实是账号余额而非代码。
+- 据此增加 `FatalStop`：`lib/run.mjs` 匹配
+  `Insufficient Balance|no adapter registered|invalid exact model metadata|missing API key` 时整条
+  流水线中止（`config-error`，退出码 3），不再把 recon 失败降级成单线任务空转（selftest 16/16）。
+
+## 仓库状态（2026-11-10）
+
+- 已 `git init`（本地 main），P0 提交 `ab113f2`，后续文档与 P1 提交见 `git log`。
 - **已推送** `https://github.com/sqbsesy/EVAagent`（`main`，`origin` 跟踪，凭据由 Git Credential Manager 保存）。
 - **prototype 已挂进 desktop profile 并联调通过**：patch 加 `- id: dsh-superagent` + `stateDir`，
   `dsh-superagent-github` 先 `disabled: true`（缺 gh）。用临时克隆档 `satcheck` 验证：插件激活、
