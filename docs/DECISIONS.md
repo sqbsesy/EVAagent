@@ -25,23 +25,39 @@
 3. `lib/ledger.mjs`：按 run 累计 token，超预算抛 `BudgetStop`。
 4. `lib/run.mjs`：编排主流程，串行 recon → 并发 worker → verifier，产物落 `runs/<runId>/`。
 5. 三个入口：`bin/eva-super.mjs` / `bin/eva-submit.mjs` / `bin/eva-replay.mjs`。
-6. `test/selftest.mjs` 10/10；dry-run / submit dry-run / replay 全链路验证通过。
+6. `test/selftest.mjs` **11/11**；dry-run / submit dry-run / replay / 工单模式全链路验证通过。
 
-未完成 / 阻塞：
+## 与 dsh-superagent-prototype 对齐（2026-11-10，用户要求「把两者对齐」）
 
-- **live 运行被账户余额阻塞**：`sdk` profile 仅注册 `deepseek-account` 适配器，调用返回
-  `Insufficient Balance (request_id: ...)`；离线链路不受影响。已试过用 `--patch` 把
-  `dsh-our-free-model` 挂进 sdk 组合（`_scratch/free.yml`），插件能加载但未注册
-  `our-free-model` 适配器（该插件把 Host 半身绑定在 desktop 的 web 组合上），不可用。
-- 10 题回放未跑（同上）。回放脚本已就绪，充值后可直接跑。
-- 尚未 `git init` / 提交 / 推送 `EVAagent`（需用户明确授权）。
-- 与桌面 profile 已安装的 `dsh-superagent-prototype@0.1.3` 的关系待澄清：该插件是「单个 GitHub
-  仓库的主动式 agent（GitHub/飞书事件 → Policy → Ticket → 独立 Session）」，与本 CLI 的
-  「CTF 解题编排」定位不同，但名称相同，需确认是否要对齐或共存。
+结论：**共存、分层，不合并代码。**
+
+| 层 | 谁负责 | 依据 |
+| --- | --- | --- |
+| 事件接入、准入、Ticket、独立 Session、回帖/PR | prototype | 它已有 GitHub/飞书 Source 与 Policy 机制 |
+| 侦察、拆解、并行、复核、预算、证据、提交 | 本仓库 CLI | prototype 的执行器没有这些闸门 |
+
+- 契约写在 `AGENTS.md` 第七条：Ticket 的 worker Session 调
+  `node <repo>/bin/eva-super.mjs --task "<标题+要点>" --task-dir <目录> --json`，只回帖
+  `runId/status/verdict/spent/runDir` 与 report 路径；不得回帖 flag 原文，不得自行 `--confirm`。
+- CLI 新增工单模式：`--task` / `--task-dir`，工单文本进 `meta.json.task`、`report.md`「工单：」行。
+- prototype 的 profile 配置要点见 `docs/INTEGRATION.md` 与
+  `integrations/dsh-superagent/profile.patch.example.yml`：桌面 profile 的 bundle 层已 insert
+  `dsh-superagent` 条目但无 config，必须由 profile patch 补 `stateDir`（否则插件拒绝启动）。
+- 本机现状：prototype 已作为依赖装进 desktop profile，但 profile patch 尚未加 `stateDir`；
+  `gh` 未安装，GitHub Source 未启用，端到端未验证。
+
+## 仓库状态（2026-11-10）
+
+- 已 `git init`（本地 main），首个提交 `P0: EVA Supervisor CLI with ticket mode and dsh-superagent-prototype integration`。
+- **推送未完成**：`github.com:443` 在本机不可达（`20.205.243.166` 连接超时），
+  `api.github.com` 可达；且无 gh、无 SSH key、无已存 GitHub 凭据。需用户提供可用网络或 PAT。
+- **live 运行仍被余额阻塞**：`sdk` profile 仅注册 `deepseek-account` 适配器，返回
+  `Insufficient Balance (request_id: ...)`；已试 `--patch` 挂 `dsh-our-free-model`，插件能加载但
+  未注册 `our-free-model` 适配器（Host 半身绑定 desktop 的 web 组合），不可用。10 题回放待充值。
 
 ## 下一步
 
 1. 充值或指定可用 provider 后跑 10 题回放（`bin/eva-replay.mjs`），按四项指标验收；
 2. 视回放结果调 `agents/*.md` 契约与并发/预算参数；
 3. 决定是否把 `runs/` 只读视图挂到控制台（D2 后期）；
-4. 明确与 `dsh-superagent-prototype` 的边界后，再谈 `git init` 与推送。
+4. 网络/凭据就绪后完成首次推送，并在 profile patch 里补 prototype 的 `stateDir` 做端到端联调。
