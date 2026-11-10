@@ -48,9 +48,8 @@
 
 ## 仓库状态（2026-11-10）
 
-- 已 `git init`（本地 main），首个提交 `P0: EVA Supervisor CLI with ticket mode and dsh-superagent-prototype integration`。
-- **推送未完成**：`github.com:443` 在本机不可达（`20.205.243.166` 连接超时），
-  `api.github.com` 可达；且无 gh、无 SSH key、无已存 GitHub 凭据。需用户提供可用网络或 PAT。
+- 已 `git init`（本地 main），提交 `P0: EVA Supervisor CLI with ticket mode and dsh-superagent-prototype integration`。
+- **已推送** `https://github.com/sqbsesy/EVAagent`（`main`，`origin` 跟踪，凭据由 Git Credential Manager 保存）。
 - **live 运行仍被余额阻塞**：`sdk` profile 仅注册 `deepseek-account` 适配器，返回
   `Insufficient Balance (request_id: ...)`；已试 `--patch` 挂 `dsh-our-free-model`，插件能加载但
   未注册 `our-free-model` 适配器（Host 半身绑定 desktop 的 web 组合），不可用。10 题回放待充值。
