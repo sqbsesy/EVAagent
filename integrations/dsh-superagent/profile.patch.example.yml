@@ -1,0 +1,28 @@
+# 示例：把 dsh-superagent-prototype 挂到 desktop profile（合并进
+#   ~/.dsh/profiles/desktop/cordis.patch.yml 的顶层列表，不要覆盖已有条目）
+#
+# 说明：
+# - bundle 层已 insert 了 id 为 dsh-superagent / dsh-superagent-github 的条目但没有 config；
+#   patch 按 id 索引且 config 整体替换，因此这里必须写全要用的字段。
+# - 路径按本机实际情况改；不要提交真实用户名以外的凭据（本文件不含任何 token）。
+# - 改完完全退出并重开 DSH 才生效。
+
+- id: dsh-superagent
+  config:
+    stateDir: C:/Users/<you>/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
+    # 单条 Ticket 提示词上限，超出截断
+    promptMaxChars: 6000
+    # 准入判断时最多抓取的事件上下文页数
+    admissionContextMaxPages: 3
+    admissionContextTimeoutMs: 20000
+
+# 可选：GitHub Source。需要先安装并登录 gh CLI（gh auth login）。
+# 字段以 `dsh --profile desktop --dump-config` 校验为准。
+- id: dsh-superagent-github
+  config:
+    stateDir: C:/Users/<you>/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
+    repository: sqbsesy/EVAagent
+    github:
+      cli: gh
+      login: <github-username>
+      noreply: <numeric-id>+<github-username>@users.noreply.github.com

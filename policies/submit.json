@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "mode": "manual",
+  "requireVerifier": true,
+  "requireReplay": true,
+  "confirmation": true,
+  "maxAttemptsPerChallenge": 3,
+  "rejectIf": [
+    "guessed",
+    "from_prompt_text",
+    "from_external_search",
+    "format_only"
+  ],
+  "notes": [
+    "mode=manual：Verifier 通过后仍由人确认；比赛期如需自动提交，单独开 mode=auto 并记录审批。",
+    "每次提交必须写 submissions 台账（脱敏）。",
+    "遵守 CTF2/CTFy Agent 规则：只提交自己算出的 flag。"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "evaagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "EVA Supervisor — 把单会话硬解升级为有预算闸、证据链与复核的解题流水线",
+  "bin": {
+    "eva-super": "bin/eva-super.mjs",
+    "eva-submit": "bin/eva-submit.mjs",
+    "eva-replay": "bin/eva-replay.mjs"
+  },
+  "scripts": {
+    "selftest": "node test/selftest.mjs",
+    "dry-run": "node bin/eva-super.mjs --dry-run"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

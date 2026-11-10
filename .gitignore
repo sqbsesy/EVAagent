@@ -1,0 +1,27 @@
+# 运行产物
+runs/
+data/
+dist/
+node_modules/
+
+# 凭据与环境
+.env
+.env.*
+*.token
+*.secret
+.credentials*
+
+# 日志与临时
+*.log
+*.tmp
+.tmp/
+
+# 题目附件与提取物（只留在工作区 work/ 下，不进仓库）
+attachments/
+uploads/
+*.pcap
+*.dd
+*.gz
+*.zip
+*.7z
+*.rar

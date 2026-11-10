@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+// 离线自检：不拉起运行时、不烧 token。
+// 覆盖 JSON 抽取、预算闸、提示词拼装、以及 mock 全链路（含产物断言）。
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import assert from 'node:assert/strict'
+import { extractJson } from '../lib/jsonx.mjs'
+import { Ledger, BudgetStop } from '../lib/ledger.mjs'
+import { composeWorker } from '../lib/prompts.mjs'
+import { orchestrate } from '../lib/run.mjs'
+import { MockBridge } from '../lib/sdk.mjs'
+import { listFiles, renderFileList, resolveChallenge } from '../lib/context.mjs'
+
+let passed = 0
+const failures = []
+
+async function test(name, fn) {
+  try {
+    await fn()
+    passed += 1
+    console.log(`ok   ${name}`)
+  } catch (error) {
+    failures.push({ name, error })
+    console.log(`FAIL ${name}\n     ${error?.message ?? error}`)
+  }
+}
+
+await test('extractJson：整段 JSON', () => {
+  assert.deepEqual(extractJson('{"a":1}'), { a: 1 })
+})
+
+await test('extractJson：围栏 + 前后解释', () => {
+  const text = '先说明一下。\n```json\n{"verdict":"pass","reasons":["ok"]}\n```\n以上。'
+  assert.equal(extractJson(text).verdict, 'pass')
+})
+
+await test('extractJson：裸花括号、含转义引号', () => {
+  const text = '结果：{"flag":"a\\"b","nested":{"x":[1,2]}} 完'
+  const value = extractJson(text)
+  assert.equal(value.flag, 'a"b')
+  assert.deepEqual(value.nested.x, [1, 2])
+})
+
+await test('extractJson：无 JSON 返回 null', () => {
+  assert.equal(extractJson('没有结构化输出'), null)
+})
+
+await test('Ledger：累计、估算标记、超预算置位', () => {
+  const ledger = new Ledger({ budget: 100, convergeAt: 0.5 })
+  ledger.add({ role: 'supervisor', tokens: 30 })
+  ledger.addEstimate({ role: 'worker', prompt: 'x'.repeat(70), reply: '' })
+  assert.equal(ledger.total, 50)
+  assert.equal(ledger.estimatedTotal, 20)
+  assert.equal(ledger.shouldConverge(), true)
+  ledger.add({ role: 'worker', tokens: 60 })
+  assert.throws(() => ledger.check('worker'), BudgetStop)
+  assert.equal(ledger.stopped, 'budget-exhausted')
+})
+
+await test('composeWorker：含任务字段与输出契约', () => {
+  const prompt = composeWorker({
+    task: { id: 't1', goal: 'G', deliverable: 'D', acceptance: 'A' },
+    surface: { category: 'misc', entry: 'E', notes: 'N' },
+    challengeName: 'demo',
+    challengeDir: 'C:/demo',
+    taskDir: 'C:/demo/super/t1',
+    workspace: 'C:/ws',
+    budget: 400000,
+  })
+  for (const needle of ['t1', 'G', 'D', 'A', '"confidence"', 'toolgate.mjs']) {
+    assert.ok(prompt.includes(needle), `缺少 ${needle}`)
+  }
+})
+
+await test('listFiles：跳过 .git/node_modules', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-list-'))
+  fs.mkdirSync(path.join(dir, '.git'))
+  fs.mkdirSync(path.join(dir, 'node_modules'))
+  fs.writeFileSync(path.join(dir, 'a.bin'), 'x')
+  const rows = listFiles(dir)
+  assert.deepEqual(rows.map((r) => r.path), ['a.bin'])
+  assert.match(renderFileList(rows), /a\.bin \(1 B\)/)
+})
+
+await test('resolveChallenge：裸名 / work 前缀 / 绝对路径', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-ws-'))
+  const dir = path.join(ws, 'work', 'demo')
+  fs.mkdirSync(dir, { recursive: true })
+  assert.equal(resolveChallenge(ws, 'demo'), dir)
+  assert.equal(resolveChallenge(ws, path.join('work', 'demo')), dir)
+  assert.equal(resolveChallenge(ws, dir), dir)
+  assert.equal(resolveChallenge(ws, 'nope'), null)
+})
+
+await test('orchestrate：工单模式把 task 写进提示词与报告', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-task-'))
+  fs.writeFileSync(path.join(dir, 'note.txt'), 'x')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs-'))
+  const result = await orchestrate({
+    workspace: dir,
+    challengeDir: dir,
+    outRoot,
+    taskText: '把附件归类并给出证据',
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 1, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 1 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge(),
+    dryRun: true,
+    logger: () => {},
+  })
+  const report = fs.readFileSync(path.join(result.runDir, 'report.md'), 'utf8')
+  assert.match(report, /工单：把附件归类并给出证据/)
+  const reconTurn = fs.readFileSync(path.join(result.runDir, 'turns', '01-supervisor-recon.md'), 'utf8')
+  assert.match(reconTurn, /任务描述（来自工单/)
+})
+
+await test('orchestrate：dry-run 全链路产出与判定', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal-'))
+  fs.writeFileSync(path.join(challenge, 'sample.bin'), 'MOCK')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 2, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 2 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge(),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.status, 'verified')
+  assert.equal(result.verdict.verdict, 'pass')
+  for (const name of ['meta.json', 'plan.json', 'state.json', 'events.jsonl', 'ledger.json', 'verdict.json', 'result.json', 'report.md']) {
+    assert.ok(fs.existsSync(path.join(result.runDir, name)), `缺少 ${name}`)
+  }
+  assert.ok(fs.existsSync(path.join(result.runDir, 'submissions', 'pending.json')))
+  assert.ok(fs.existsSync(path.join(challenge, 'super', 't1', 'finding.json')))
+  assert.ok(result.spent > 0)
+})
+
+await test('orchestrate：预算不足时触发硬闸并写 partial', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal2-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'x')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs2-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 500, convergeAt: 0.6, workerMax: 2, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 2 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge(),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.equal(result.status, 'partial')
+  assert.equal(result.verdict.verdict, 'reject')
+  assert.ok(result.verdict.reasons.join(' ').includes('预算闸'))
+})
+
+console.log('')
+if (failures.length) {
+  console.error(`${passed} passed, ${failures.length} failed`)
+  for (const f of failures) console.error(`- ${f.name}: ${f.error?.stack ?? f.error}`)
+  process.exit(1)
+}
+console.log(`${passed}/${passed} passed`)

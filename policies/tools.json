@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "workers": {
+    "allow": ["pwsh", "read", "write", "edit", "glob", "grep", "skill"],
+    "deny": ["agent_teams_*", "plugin_manager", "schedule_*", "browser_*"],
+    "mcp": "lazy-only",
+    "note": "worker 不常驻 MCP；统一 node _tools/eva/mcp-lazy.mjs call <tool> --args '{...}'"
+  },
+  "supervisor": {
+    "allow": ["subagent", "subagent_fork", "workflow", "read", "glob", "grep", "pwsh"],
+    "deny": ["plugin_manager", "schedule_*"],
+    "mcp": "lazy-only"
+  },
+  "danger": {
+    "default": "deny",
+    "rules": "沿用 _tools/eva/toolgate.mjs 的 18 条拒绝规则",
+    "escalate": "需 --allow-danger 且 EVA_ALLOW_DANGER=1，并在复盘写明理由"
+  }
+}
