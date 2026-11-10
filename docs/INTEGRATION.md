@@ -130,7 +130,58 @@ node <repo>/bin/eva-super.mjs \
 `/orchestrator/api/*`，裸 `/orchestrator` 返回 404 属正常；同源校验要求请求头
 `x-orchestrator-request: 1`）。
 
-## 七、尚未验证
+## 七、启用 GitHub Source（安装 gh）
+
+本机已装 winget（v1.29），用官方源安装：
+
+```powershell
+winget install --id GitHub.cli -e --accept-source-agreements --accept-package-agreements
+```
+
+装完**新开一个终端**（PATH 里是 `C:\Program Files\GitHub CLI\gh.exe`），确认：
+
+```powershell
+gh --version
+```
+
+登录（二选一）：
+
+```powershell
+# A. 交互式（浏览器 device flow，需能打开 github.com/login/device）
+gh auth login --hostname github.com --git-protocol https --web
+
+# B. 用已有令牌（本机 GCM 里存过 repo scope 的 token；--with-token 需要读 stdin）
+$tok = ("protocol=https`nhost=github.com`n`n" | git credential fill) |
+  Where-Object { $_ -match '^password=' } | ForEach-Object { $_ -replace '^password=','' }
+$tok | gh auth login --hostname github.com --git-protocol https --with-token
+Remove-Variable tok
+```
+
+校验（`repo` scope 足够读写 Issue/PR）：
+
+```powershell
+gh auth status
+gh api user --jq .login
+```
+
+然后改 `~/.dsh/profiles/desktop/cordis.patch.yml`，把 `dsh-superagent-github` 的
+`disabled: true` 去掉并补 config（字段以 `--dump-config` 校验为准）：
+
+```yaml
+- id: dsh-superagent-github
+  config:
+    stateDir: /Users/<you>/Documents/deepseek-harness/EVA/work/eva-superagent/prototype-state
+    repository: sqbsesy/EVAagent
+    github:
+      cli: gh
+      login: <github-username>
+      noreply: <id>+<username>@users.noreply.github.com
+```
+
+改完完全退出并重开 DSH，再看 `GET /orchestrator/api/settings` 里 GitHub Source 是否 enabled。
+注意 `gh` 是给 prototype 的 worker/router Session 用的；本仓库的 `eva-super.mjs` 不依赖它。
+
+## 八、尚未验证
 
 - `dsh-superagent-github` 的 config 字段以源码类型 `Deployment` 推断，未在本机跑通端到端
   （缺 `gh`，且该条目当前 disabled）。
