@@ -98,7 +98,11 @@ for (const challenge of challenges) {
   if (args.workers) argv.push('--workers', String(args.workers))
   // live provider 透传：bench 与单题用同一套 patch/provider/model。
   for (const key of ['patch', 'provider', 'model']) {
-    if (args[key]) argv.push(`--${key}`, String(args[key]))
+    if (!args[key]) continue
+    let value = String(args[key])
+    // eva-super 以工作区为 cwd 启动，patch 路径要按本仓库解析成绝对路径。
+    if (key === 'patch' && !path.isAbsolute(value)) value = path.resolve(ROOT, value)
+    argv.push(`--${key}`, value)
   }
 
   console.log(`[eva-bench] ▶ ${challenge}`)
