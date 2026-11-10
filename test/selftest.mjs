@@ -181,7 +181,7 @@ await test('orchestrate：dry-run 全链路产出与判定', async () => {
     assert.ok(fs.existsSync(path.join(result.runDir, name)), `缺少 ${name}`)
   }
   assert.ok(fs.existsSync(path.join(result.runDir, 'submissions', 'pending.json')))
-  assert.ok(fs.existsSync(path.join(challenge, 'super', 't1', 'finding.json')))
+  assert.ok(fs.existsSync(path.join(result.runDir, 'super', 't1', 'finding.json')))
   assert.ok(result.spent > 0)
 })
 
@@ -283,8 +283,9 @@ await test('orchestrate：worker 不认答案时兜底扫描成候选', async ()
     dryRun: true,
     logger: () => {},
   })
-  assert.match(result.verdict.candidate, /^file:super\/_candidate\.txt$/)
-  assert.match(fs.readFileSync(path.join(challenge, 'super', '_candidate.txt'), 'utf8'), /FLAG:scan-only-123/)
+  assert.match(result.verdict.candidate, /^file:.*super\/_candidate\.txt$/)
+  const relCandidate = result.verdict.candidate.replace(/^file:/, '')
+  assert.match(fs.readFileSync(path.join(challenge, relCandidate), 'utf8'), /FLAG:scan-only-123/)
 })
 
 console.log('')
