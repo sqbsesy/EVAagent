@@ -98,6 +98,7 @@ for (const challenge of challenges) {
   if (args.workers) argv.push('--workers', String(args.workers))
   if (args.scaffold) argv.push('--scaffold')
   // live provider 透传：bench 与单题用同一套 patch/provider/model。
+  if (args.notes) argv.push('--notes', String(args.notes))
   for (const key of ['patch', 'provider', 'model']) {
     if (!args[key]) continue
     let value = String(args[key])

@@ -51,6 +51,7 @@ function usage() {
   --provider <id>     覆盖 provider
   --patch <file>      传给 sdk 运行时的 --patch 覆盖层（给 sdk 档加 provider 适配器）
   --workspace <dir>   指定 EVA 工作区（默认向上查找 _tools/eva/toolgate.mjs）
+  --notes <文本>       前情提示（上一轮已确认的结论，注入 recon 与 worker）
   --task-dir <dir>    工单模式的工作目录（默认当前目录）
   --out <dir>         运行产物目录（默认 <repo>/runs）
   --ignore-prior      忽略本题历史用量（默认会从 costs.jsonl 与历史 runs 扣减单题预算）
@@ -82,6 +83,7 @@ if (typeof args.challenge === 'string' && typeof args.task === 'string') {
 const dryRun = Boolean(args['dry-run'])
 const workspace = path.resolve(typeof args.workspace === 'string' ? args.workspace : findWorkspace(process.cwd()))
 const taskText = typeof args.task === 'string' ? args.task : ''
+const hintText = typeof args.notes === 'string' ? args.notes : ''
 let challengeDir
 if (taskText) {
   // 工单模式：目录只是产物与工作区，题目语义由 task 文本给出。
