@@ -152,3 +152,10 @@ node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --ignore-prior \
 
 - `--workers N` 现在是**显式覆盖**：`workerOverride=true` 时只受 `surface.hypotheses.length` 与 `workerMax` 限制，不再被 `DIFFICULTY_WORKERS`（easy 1 / medium 2 / hard 2）压回。默认（不传）仍按难度分级。
 - 起因：bluetrace 有 4 个任务，但并发一直被压到 2，2290 s 里大半在排队；传 `--workers 3` 之前无效。
+
+## lfsr 通过（2026-11-11 11:43）
+
+- `bench-20261111031039`：`lfsr` **verified / pass**，1,541,758 tok，1944 s，3 并发、单轮 20 min。
+- 通过的最后一环是三处修复：全角标点 JSON 修复（recon 不再降级）、历史产物警示（不再审计 `solve*.py`）、
+  worker 拿到候选立刻落盘 + 20 min 单轮。此前两轮分别 1.30 M / 0.73 M tok 全败在“没产出候选”。
+- 当前离线基准：easycap ✅、lfsr ✅、bluetrace ❌（21.5 MB BTSnoop 抓包，需写 HCI/L2CAP/RFCOMM 解析器，4 个 worker 均在 18–20 min 被强杀）。
