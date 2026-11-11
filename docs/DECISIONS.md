@@ -159,3 +159,18 @@ node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --ignore-prior \
 - 通过的最后一环是三处修复：全角标点 JSON 修复（recon 不再降级）、历史产物警示（不再审计 `solve*.py`）、
   worker 拿到候选立刻落盘 + 20 min 单轮。此前两轮分别 1.30 M / 0.73 M tok 全败在“没产出候选”。
 - 当前离线基准：easycap ✅、lfsr ✅、bluetrace ❌（21.5 MB BTSnoop 抓包，需写 HCI/L2CAP/RFCOMM 解析器，4 个 worker 均在 18–20 min 被强杀）。
+
+
+## bluetrace 第三跑：前情指令化（2026-11-11 下午）
+
+- 现象：`--notes` 首次实现只把前情当「背景」放进 recon，recon 仍给出 generic 单任务计划
+  （misc/easy/1 task），且一处 CLI 漏传导致前情根本没进提示词。已修：CLI 传 `hintText`，
+  题目模式下 `task: taskText || hintText`，让 recon 把前情当任务指令；新增回归自测（22/22）。
+- 指令化后的计划质量明显好转：`forensics/medium`，4 个任务（提名字 → ZipCrypto 校验 → 解密 → 取 flag）。
+- 结果（`runs/20261111061309-92692a`，3 M、2 并发、`--scaffold`、max 5400）：**failed/reject，
+  2,693,104 tok，3,636 s（60.6 min）**。scaffold 20 min 超时烧 880,475 tok；t1/t2/t3 各 20 min 超时，
+  合计 1.23 M；无候选，verifier skip。
+- 结论：卡点不在「计划」而在「单轮 20 min 仍不足以把 HCI/L2CAP 重组 + 口令枚举做完」。
+  已加限制：脚手架单轮 `min(turnWallClockSec, 600)`，避免铺路阶段吃掉预算。
+- 下一步建议：把「名字提取」与「ZyCrypto 校验」拆成有依赖的两轮（前者 10 min 硬超时、产出候选名清单落盘），
+  或在题目目录预置已知的 `extract_names.py`，让 worker 只做校验与解密。

@@ -1,12 +1,14 @@
 ﻿# EVAagent（P0）
 
-> 状态：**P0 已实现**（CLI 可跑，离线链路自测 20/20；含工单模式）。**2026-11-10 首条 live 通过**：
+> 状态：**P0 已实现**（CLI 可跑，离线链路自测 22/22；含工单模式、脚手架与前情注入）。**2026-11-10 首条 live 通过**：
 > `easycap` 跑出 `verified / pass`，1.40 M tok（缓存折算后）、24.8 min，候选由 t1 落盘并经独立复核
 > （`runs/20261110110922-f5f9ee`）。P1 已落地：usage 缺失时按
 > 提示词+工具输出估算并放大（`estimateMultiplier`）、单题预算跨 run 累计（`perChallengeTokens` 扣历史）、
 > 3 题基准脚本 `eva-bench`；账号级错误（欠费/无适配器）整条中止为 `config-error`。
 > 计量以运行时 `turn/end` 的 usage 为准，缓存读按 `cacheWeight=0.1` 折算（`totalTokens` 含缓存读，
 > 全额计入会让预算失效）；每轮落账后立即校验，超预算停在 `partial`。
+> `--notes` 在题目模式下当「本轮任务指令」注入 recon（并作为前情给 worker），是上一轮结论复用、
+> 避免 recon 重新泛化计划的口子；脚手架 `--scaffold` 单轮上限 10 min。
 > 候选结果默认**落盘**：worker 只回 `candidateFile`，`verdict.json`/`pending.json` 记 `file:<相对路径>`，
 > flag 原文不进对话、不进报告；`eva-submit` 从该文件读第一行。
 > sdk 档的 live provider 用 `--patch integrations/sdk-pi-ai.patch.yml`（pi-ai + 千问 token-plan），
