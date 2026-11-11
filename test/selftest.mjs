@@ -319,6 +319,26 @@ await test('orchestrate：JSON 产物里的人读明文也能被兜底扫描认�
   assert.match(fs.readFileSync(path.join(challenge, relCandidate), 'utf8'), /f1nd_th3_hidden_key_0123456789/)
 })
 
+await test('orchestrate：--scaffold 先产出脚手架再派活', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal8-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'MOCK')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs8-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 1, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 1, scaffold: true },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge(),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.ok(fs.existsSync(path.join(result.runDir, 'scaffold', 'README.md')))
+  assert.ok(fs.existsSync(path.join(result.runDir, 'turns', '02-supervisor-scaffold.md')))
+  const events = fs.readFileSync(path.join(result.runDir, 'events.jsonl'), 'utf8')
+  assert.match(events, /"type":"scaffold\/ready"/)
+})
+
 console.log('')
 if (failures.length) {
   console.error(`${passed} passed, ${failures.length} failed`)

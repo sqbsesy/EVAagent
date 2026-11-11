@@ -46,6 +46,7 @@ function usage() {
 选项：
   --budget <tok>      覆盖 policies/budget.json 的 perRunTokens（默认 1,200,000）
   --workers <n>       覆盖并发上限（默认 2，受内存约束）
+  --scaffold          解题前先跑一轮脚手架（协议/工具摸底 + 可复用脚本）
   --model <id>        覆盖模型（默认沿用 sdk profile）
   --provider <id>     覆盖 provider
   --patch <file>      传给 sdk 运行时的 --patch 覆盖层（给 sdk 档加 provider 适配器）
@@ -97,6 +98,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/,
 const budgetConfig = readJson(configFile)
 const submitPolicy = readJson(submitFile)
 if (args.budget) budgetConfig.perRunTokens = Number(args.budget)
+if (args.scaffold) budgetConfig.scaffold = true
 if (args.workers) {
   budgetConfig.workerMax = Number(args.workers)
   budgetConfig.workerOverride = true

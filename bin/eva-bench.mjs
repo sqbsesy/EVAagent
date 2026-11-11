@@ -96,6 +96,7 @@ for (const challenge of challenges) {
   if (args['ignore-prior']) argv.push('--ignore-prior')
   if (args.budget) argv.push('--budget', String(args.budget))
   if (args.workers) argv.push('--workers', String(args.workers))
+  if (args.scaffold) argv.push('--scaffold')
   // live provider 透传：bench 与单题用同一套 patch/provider/model。
   for (const key of ['patch', 'provider', 'model']) {
     if (!args[key]) continue
