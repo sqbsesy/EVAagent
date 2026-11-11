@@ -1,19 +1,25 @@
 {
-  "version": 1,
+  "version": 2,
   "perChallengeTokens": 3500000,
   "perRunTokens": 1200000,
   "supervisorTokens": 300000,
   "workerTokens": 400000,
+  "verifierTokens": 300000,
   "workerMax": 2,
   "convergeAt": 0.6,
   "cacheWeight": 0.1,
   "turnWallClockSec": 1200,
+  "stagedTurnSec": 600,
+  "reserveShare": 0.2,
+  "scaffold": false,
   "maxTurns": 8,
   "hardStop": true,
   "notes": [
     "workerMax 受内存约束：空闲可用 4.3 GB，负载下 1.9 GB，实测并发 2–3 为上限。",
     "convergeAt=0.6 表示用量到 run 预算 60% 后停止新扇出，只保留单线。",
     "cacheWeight=0.1：usage.totalTokens 含缓存读，按 10% 折算计入预算；原始值记在 ledger 条目的 raw 字段。",
+    "stagedTurnSec=600：串行阶段（--staged）每段硬超时 10 分钟，且必须落盘 artifact，否则后续阶段不启动。",
+    "reserveShare=0.2：起跑前把剩余预算的 20% 留给后续阶段，单轮 cap=min(roleTokens, 剩余*0.8/剩余段数)。",
     "hardStop=true 时由 lib/ledger.mjs 直接中止，不依赖提示词。"
   ]
 }

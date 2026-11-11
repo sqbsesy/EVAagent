@@ -1,6 +1,7 @@
-﻿# EVAagent（P0）
+# EVAagent（P0）
 
-> 状态：**P0 已实现**（CLI 可跑，离线链路自测 22/22；含工单模式、脚手架与前情注入）。**2026-11-10 首条 live 通过**：
+> 状态：**P0 已实现**（CLI 可跑，离线链路自测 28/28；含工单模式、脚手架、前情注入，以及
+> **预置探针 / 串行阶段 / 起跑前预算预留**三机制）。**2026-11-10 首条 live 通过**：
 > `easycap` 跑出 `verified / pass`，1.40 M tok（缓存折算后）、24.8 min，候选由 t1 落盘并经独立复核
 > （`runs/20261110110922-f5f9ee`）。P1 已落地：usage 缺失时按
 > 提示词+工具输出估算并放大（`estimateMultiplier`）、单题预算跨 run 累计（`perChallengeTokens` 扣历史）、
@@ -91,10 +92,25 @@ node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --max-seconds 1500
 
 # 7) 忽略单题历史用量（同题重跑、想拿满单 run 预算时）
 node bin/eva-super.mjs --challenge work/<题目目录> --ignore-prior
+
+# 8) 串行阶段：按 dependsOn 逐段跑，每段 10 min 硬超时、必须落盘
+node bin/eva-super.mjs --challenge work/<题目目录> --staged --ignore-prior \
+  --patch integrations/sdk-pi-ai.patch.yml --provider qwen-token-plan-cn --model deepseek-v4.1-flash
 ```
 
 产出：`runs/<runId>/{meta,plan,state,events.jsonl,ledger,verdict,result,report}.json|md`
 与 `turns/`、`submissions/`。
+
+## 三个调度机制
+
+| 机制 | 开关 | 行为 | 解决的问题 |
+| --- | --- | --- | --- |
+| 预置探针 | 自动 | 扫题目目录 `probes/**`（`.py/.sh/.mjs/.js`，深度 ≤2）与根目录 `probe*/extract*`，把前 160 字符摘要注入 worker 提示词「预置脚本…禁止重写」 | worker 每轮重新发明解析器（bluetrace 曾在 pcapng 解析上耗 18 min） |
+| 串行阶段 | `--staged` | recon 输出 `dependsOn`/`artifact`，`orderStages()` 拓扑排序后逐段执行；单段 `min(turnWallClockSec, stagedTurnSec=600)` 硬超时；产物缺失写 `stage/missing` 并跳过下游（`stage/skipped`） | 4 路并行时下游拿不到上游名字只能瞎猜；单轮 2400 s 烧 600 k |
+| 起跑前预留 | 自动 | `admitTurn()`：`usable=剩余*(1-reserveShare)`，按 `stagesLeft` 平分得每段 cap（再与角色上限取小），剩余不足 `minReserve=20000` 直接拒绝起跑 | 闸门只在轮间检查，3 个并发轮各冲 600 k 导致超支 |
+
+`--stage-seconds <n>` 覆盖单段墙钟（≥60）；`policies/budget.json` 的 `reserveShare`（默认 0.2）控制预留比例。
+事件：`probes/found`、`plan/staged-invalid`、`turn/admit`、`turn/over-cap`、`stage/artifact`、`stage/missing`、`stage/skipped`、`stage/blocked`。
 
 ## live provider
 

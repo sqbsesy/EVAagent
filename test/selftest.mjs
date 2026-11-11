@@ -8,10 +8,10 @@ import assert from 'node:assert/strict'
 import { extractJson } from '../lib/jsonx.mjs'
 import { Ledger, BudgetStop } from '../lib/ledger.mjs'
 import { composeRecon, composeWorker } from '../lib/prompts.mjs'
-import { orchestrate } from '../lib/run.mjs'
+import { orchestrate, orderStages } from '../lib/run.mjs'
 import { MockBridge } from '../lib/sdk.mjs'
-import { listFiles, renderFileList, resolveChallenge } from '../lib/context.mjs'
-import { effectiveRunBudget, spentFromRuns } from '../lib/budget.mjs'
+import { listFiles, renderFileList, resolveChallenge, findProbes, renderProbes } from '../lib/context.mjs'
+import { effectiveRunBudget, spentFromRuns, admitTurn } from '../lib/budget.mjs'
 
 let passed = 0
 const failures = []
@@ -339,13 +339,107 @@ await test('orchestrate：--scaffold 先产出脚手架再派活', async () => {
   assert.match(events, /"type":"scaffold\/ready"/)
 })
 
-console.log('')
-if (failures.length) {
-  console.error(`${passed} passed, ${failures.length} failed`)
-  for (const f of failures) console.error(`- ${f.name}: ${f.error?.stack ?? f.error}`)
-  process.exit(1)
-}
-console.log(`${passed}/${passed} passed`)
+await test('budget：admitTurn 按阶段数预留', () => {
+  // 剩余 1,000,000、3 段、预留 20% → 每段可用 266,666；roleCap 400k 不生效
+  const a = admitTurn({ remaining: 1000000, stagesLeft: 3, roleCap: 400000, reserveShare: 0.2 })
+  assert.equal(a.ok, true)
+  assert.equal(a.cap, 266666)
+  assert.ok(a.reserve > 500000)
+  // roleCap 比 perStage 小时取 roleCap
+  assert.equal(admitTurn({ remaining: 3000000, stagesLeft: 2, roleCap: 300000 }).cap, 300000)
+  // 剩余不足 minReserve → 不准起跑
+  assert.equal(admitTurn({ remaining: 15000, stagesLeft: 1 }).ok, false)
+})
+
+await test('orderStages：按 dependsOn 排序，环/悬空引用判非法', () => {
+  const order = orderStages([
+    { id: 't1' },
+    { id: 't2', dependsOn: ['t1'] },
+    { id: 't3', dependsOn: ['t2'] },
+  ])
+  assert.deepEqual(order.map((t) => t.id), ['t1', 't2', 't3'])
+  assert.equal(orderStages([{ id: 't1', dependsOn: ['t2'] }, { id: 't2', dependsOn: ['t1'] }]), null)
+  assert.equal(orderStages([{ id: 't1', dependsOn: ['nope'] }]), null)
+})
+
+await test('findProbes：probes/ 与根目录探针都能被识别并注入提示词', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-probes-'))
+  fs.mkdirSync(path.join(dir, 'probes'))
+  fs.writeFileSync(path.join(dir, 'probes', 'extract_names.py'), '#!/usr/bin/env python3\n"""提取 EIR 设备名"""\nprint(1)\n')
+  fs.writeFileSync(path.join(dir, 'probe.sh'), 'set -e\necho hi\n')
+  const rows = findProbes(dir)
+  assert.deepEqual(rows.map((r) => r.path).sort(), ['probe.sh', 'probes/extract_names.py'])
+  const text = renderProbes(rows)
+  assert.match(text, /probes\/extract_names\.py/)
+  const prompt = composeWorker({
+    task: { id: 't1', goal: 'g', acceptance: 'a' },
+    surface: { category: 'forensics', difficulty: 'medium', entry: 'e', notes: '' },
+    challengeName: 'x', challengeDir: dir, taskDir: dir, workspace: dir, budget: 1000,
+    probes: text,
+  })
+  assert.match(prompt, /预置脚本/)
+  assert.match(prompt, /禁止重写/)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+await test('orchestrate：串行阶段缺产物时跳过后续依赖任务', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-stage-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'MOCK')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs-stage-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 200000, convergeAt: 0.6, workerMax: 2, workerTokens: 40000, turnWallClockSec: 30, maxRounds: 1, staged: true, stagedTurnSec: 30 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () =>
+      new MockBridge({
+        finding: { candidate: '', candidateFile: '', finding: '阶段结论', confidence: 0.6 },
+        surface: {
+          category: 'forensics',
+          difficulty: 'medium',
+          entry: 'pcap',
+          attachments: ['a.bin'],
+          hypotheses: [
+            { id: 't1', goal: '提取名字', deliverable: 'names.json', acceptance: '有文件', artifact: 'names.json' },
+            { id: 't2', goal: '解压', deliverable: 'flag.txt', acceptance: '有 flag', artifact: 'flag.txt', dependsOn: ['t1'] },
+          ],
+          notes: '',
+        },
+      }),
+    dryRun: true,
+    logger: () => {},
+  })
+  const events = fs.readFileSync(path.join(result.runDir, 'events.jsonl'), 'utf8')
+  assert.match(events, /"type":"stage\/missing"/)
+  assert.match(events, /"type":"stage\/skipped"/)
+  // t2 不应起跑：只有 recon、t1 两轮（verifier 无候选会被跳过）
+  const turns = fs.readdirSync(path.join(result.runDir, 'turns'))
+  assert.equal(turns.length, 2)
+  fs.rmSync(challenge, { recursive: true, force: true })
+  fs.rmSync(outRoot, { recursive: true, force: true })
+})
+
+await test('orchestrate：串行阶段单任务可跑通全链路', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-stage2-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'MOCK')
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs-stage2-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 200000, convergeAt: 0.6, workerMax: 1, workerTokens: 40000, turnWallClockSec: 30, maxRounds: 1, staged: true, stagedTurnSec: 30 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge(),
+    dryRun: true,
+    logger: () => {},
+  })
+  assert.equal(result.status, 'verified')
+  assert.equal(result.staged, true)
+  fs.rmSync(challenge, { recursive: true, force: true })
+  fs.rmSync(outRoot, { recursive: true, force: true })
+})
+
 await test('提示词：--notes 前情同时注入 recon 与 worker', async () => {
   const recon = composeRecon({
     challengeName: 'x', challengeDir: 'd', files: 'f', budget: 1000, hint: 'PRIOR_KNOWLEDGE_42',
@@ -360,3 +454,11 @@ await test('提示词：--notes 前情同时注入 recon 与 worker', async () =
   })
   assert.ok(worker.includes('PRIOR_KNOWLEDGE_42'), 'worker prompt should carry hint')
 })
+
+console.log('')
+if (failures.length) {
+  console.error(`${passed} passed, ${failures.length} failed`)
+  for (const f of failures) console.error(`- ${f.name}: ${f.error?.stack ?? f.error}`)
+  process.exit(1)
+}
+console.log(`${passed}/${passed} passed`)

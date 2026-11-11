@@ -47,6 +47,8 @@ function usage() {
   --budget <tok>      覆盖 policies/budget.json 的 perRunTokens（默认 1,200,000）
   --workers <n>       覆盖并发上限（默认 2，受内存约束）
   --scaffold          解题前先跑一轮脚手架（协议/工具摸底 + 可复用脚本）
+  --staged            串行阶段模式：按 dependsOn 逐段执行，每段 10 min 硬超时且必须落盘
+  --stage-seconds <n> 覆盖串行阶段单段墙钟（默认 600 秒）
   --model <id>        覆盖模型（默认沿用 sdk profile）
   --provider <id>     覆盖 provider
   --patch <file>      传给 sdk 运行时的 --patch 覆盖层（给 sdk 档加 provider 适配器）
@@ -101,6 +103,12 @@ const budgetConfig = readJson(configFile)
 const submitPolicy = readJson(submitFile)
 if (args.budget) budgetConfig.perRunTokens = Number(args.budget)
 if (args.scaffold) budgetConfig.scaffold = true
+if (args.staged) budgetConfig.staged = true
+if (args['stage-seconds']) {
+  const secs = Number(args['stage-seconds'])
+  if (!Number.isFinite(secs) || secs < 60) fail('--stage-seconds 必须是 >= 60 的秒数')
+  budgetConfig.stagedTurnSec = secs
+}
 if (args.workers) {
   budgetConfig.workerMax = Number(args.workers)
   budgetConfig.workerOverride = true
@@ -134,7 +142,7 @@ if (!args.json) {
   console.log(`[eva-super] ${taskText ? `ticket=${challengeDir}` : `challenge=${challengeDir}`}`)
   if (taskText) console.log(`[eva-super] task=${taskText.split('\n')[0].slice(0, 120)}`)
   console.log(`[eva-super] workspace=${workspace}`)
-  console.log(`[eva-super] files=${files.length} budget=${budgetConfig.perRunTokens} workers=${budgetConfig.workerMax} mode=${dryRun ? 'dry-run' : 'live'}`)
+  console.log(`[eva-super] files=${files.length} budget=${budgetConfig.perRunTokens} workers=${budgetConfig.workerMax} staged=${budgetConfig.staged ? 'on' : 'off'} mode=${dryRun ? 'dry-run' : 'live'}`)
   if (prior.total > 0) {
     const remaining = Math.max(0, Number(budgetConfig.perChallengeTokens || 0) - prior.total)
     console.log(`[eva-super] 本题历史用量=${prior.total} tok（来源 ${prior.source}），单题余额≈${remaining}`)

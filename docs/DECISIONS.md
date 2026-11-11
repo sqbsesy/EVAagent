@@ -174,3 +174,23 @@ node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --ignore-prior \
   已加限制：脚手架单轮 `min(turnWallClockSec, 600)`，避免铺路阶段吃掉预算。
 - 下一步建议：把「名字提取」与「ZyCrypto 校验」拆成有依赖的两轮（前者 10 min 硬超时、产出候选名清单落盘），
   或在题目目录预置已知的 `extract_names.py`，让 worker 只做校验与解密。
+
+## 三项调度优化（2026-11-11 晚）
+
+针对「bluetrace 三跑 2.69 M 仍未过」暴露的三个结构问题，落地三机制（自测 28/28）：
+
+1. **预置探针**（自动）：`findProbes()` 扫题目目录 `probes/**`（深度 ≤2）与根目录 `probe*/extract*`，
+   把文件头 160 字符摘要注入 worker 提示词「## 预置脚本（…禁止重写）」。目的：把「已知怎么解析」
+   从模型手里拿走——bluetrace 的 18 min 全花在重写 pcapng 解析器；现在只要题目目录里有 `probes/extract_names.py`，
+   worker 只做校验与解密。事件 `probes/found`，plan/report 记录数量。
+2. **依赖化分段**（`--staged`）：recon schema 增 `dependsOn`/`artifact`，`orderStages()` 拓扑排序
+   （成环/悬空引用则回退并行并写 `plan/staged-invalid`），逐段串行、单段 `min(turnWallClockSec, stagedTurnSec)`、
+   产物缺失写 `stage/missing` 并 `stage/skipped` 下游。默认 `stagedTurnSec=600`（`--stage-seconds` 可覆盖）。
+   解决「4 路并行时 t2 拿不到 t1 的名字只能猜」。
+3. **起跑前预算预留**（自动）：`admitTurn()` 以 `remainingRun()` 为准，`usable=剩余*(1-reserveShare)`，
+   按 `stagesLeft` 平分出每段 cap（与角色上限取小），剩余 < `minReserve=20000` 直接拒绝。
+   事件 `turn/admit`；单轮实测超 cap 1.5 倍写 `turn/over-cap` 便于事后追账。
+   解决「闸门只在轮间检查、3 个并发轮各冲 600 k」。
+
+`policies/budget.json` v2：新增 `verifierTokens: 300000`、`stagedTurnSec: 600`、`reserveShare: 0.2`、`scaffold: false`。
+新增事件已写进 README「三个调度机制」表；`env` 仍只认 `EVA_DSH_*`，无新增密钥。

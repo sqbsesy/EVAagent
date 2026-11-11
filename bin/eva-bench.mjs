@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 // 批量回放：按顺序跑若干道题，汇总 pass / token / 墙钟，产出可对比的 bench 报告。
 // 用法：
 //   node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr
@@ -23,7 +23,7 @@ function parseArgs(argv) {
       continue
     }
     const key = token.slice(2)
-    if (key === 'help' || key === 'dry-run' || key === 'ignore-prior') {
+    if (key === 'help' || key === 'dry-run' || key === 'ignore-prior' || key === 'staged') {
       out[key] = true
       continue
     }
@@ -49,6 +49,8 @@ function usage() {
   --out <dir>          传给 eva-super 的 runs 目录（默认 <repo>/runs）
   --budget <tok>       每题 perRunTokens 覆盖
   --workers <n>        并发覆盖
+  --staged             串行阶段模式（依赖 + 落盘校验 + 10 min/段）
+  --stage-seconds <n>  串行阶段单段墙钟（默认 600 秒）
   --dry-run            用 mock 跑
   --ignore-prior       不扣本题历史用量（重新计时）
   --max-seconds <n>    单题墙钟上限（默认 3600；verifier 慢，1800 常被截断）
@@ -97,6 +99,8 @@ for (const challenge of challenges) {
   if (args.budget) argv.push('--budget', String(args.budget))
   if (args.workers) argv.push('--workers', String(args.workers))
   if (args.scaffold) argv.push('--scaffold')
+  if (args.staged) argv.push('--staged')
+  if (args['stage-seconds']) argv.push('--stage-seconds', String(args['stage-seconds']))
   // live provider 透传：bench 与单题用同一套 patch/provider/model。
   if (args.notes) argv.push('--notes', String(args.notes))
   for (const key of ['patch', 'provider', 'model']) {
