@@ -7,7 +7,7 @@
   "workerMax": 2,
   "convergeAt": 0.6,
   "cacheWeight": 0.1,
-  "turnWallClockSec": 720,
+  "turnWallClockSec": 1200,
   "maxTurns": 8,
   "hardStop": true,
   "notes": [

@@ -93,10 +93,14 @@ if (taskText) {
 
 const configFile = path.join(ROOT, 'policies', 'budget.json')
 const submitFile = path.join(ROOT, 'policies', 'submit.json')
-const budgetConfig = JSON.parse(fs.readFileSync(configFile, 'utf8'))
-const submitPolicy = JSON.parse(fs.readFileSync(submitFile, 'utf8'))
+const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''))
+const budgetConfig = readJson(configFile)
+const submitPolicy = readJson(submitFile)
 if (args.budget) budgetConfig.perRunTokens = Number(args.budget)
-if (args.workers) budgetConfig.workerMax = Number(args.workers)
+if (args.workers) {
+  budgetConfig.workerMax = Number(args.workers)
+  budgetConfig.workerOverride = true
+}
 if (!Number.isFinite(budgetConfig.perRunTokens) || budgetConfig.perRunTokens <= 0) fail('预算必须是正数')
 if (!Number.isFinite(budgetConfig.workerMax) || budgetConfig.workerMax < 1) fail('并发必须是 >= 1 的整数')
 

@@ -36,6 +36,13 @@ await test('extractJson：围栏 + 前后解释', () => {
   assert.equal(extractJson(text).verdict, 'pass')
 })
 
+await test('extractJson：全角标点自动纠正', () => {
+  const text = '{"category":"crypto"、"difficulty":"easy"，"notes":"x：y"}'
+  const value = extractJson(text)
+  assert.equal(value.category, 'crypto')
+  assert.equal(value.difficulty, 'easy')
+})
+
 await test('extractJson：裸花括号、含转义引号', () => {
   const text = '结果：{"flag":"a\\"b","nested":{"x":[1,2]}} 完'
   const value = extractJson(text)
@@ -95,12 +102,13 @@ await test('Ledger：估算放大与 raw 记录', () => {
   assert.equal(ledger.entries[0].raw, 30)
 })
 
-await test('Ledger：prior 计入收敛与硬闸', () => {
+await test('Ledger：prior 只进汇报，不重复计入硬闸', () => {
   const ledger = new Ledger({ budget: 100, convergeAt: 0.5, priorSpent: 60 })
   ledger.add({ role: 'worker', tokens: 10 })
+  assert.equal(ledger.total, 10)
   assert.equal(ledger.effectiveTotal, 70)
-  assert.equal(ledger.shouldConverge(), true)
-  ledger.add({ role: 'worker', tokens: 40 })
+  assert.equal(ledger.shouldConverge(), false)
+  ledger.add({ role: 'worker', tokens: 95 })
   assert.throws(() => ledger.check('worker'), BudgetStop)
 })
 

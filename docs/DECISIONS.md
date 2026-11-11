@@ -148,3 +148,7 @@ node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --ignore-prior \
 3. 决定是否把 `runs/` 只读视图挂到控制台（D2 后期）；
 4. GitHub Source 若确需自动接单，需在 WSL/macOS/Linux 上跑 prototype；Windows 本机用
    `gh issue view` + `eva-super.mjs --task` 手动转工单。
+## 并发覆盖（2026-11-11）
+
+- `--workers N` 现在是**显式覆盖**：`workerOverride=true` 时只受 `surface.hypotheses.length` 与 `workerMax` 限制，不再被 `DIFFICULTY_WORKERS`（easy 1 / medium 2 / hard 2）压回。默认（不传）仍按难度分级。
+- 起因：bluetrace 有 4 个任务，但并发一直被压到 2，2290 s 里大半在排队；传 `--workers 3` 之前无效。
