@@ -1,4 +1,4 @@
-# 决策记录
+﻿# 决策记录
 
 ## 已定（2026-11-10，用户 D1–D3）
 
@@ -107,6 +107,39 @@
 - **兜底扫描**：worker 常把还原出的答案当「中间产物」（本轮 `raw38.bin` 就是 `FLAG:...`），
   没人认领时在 `<题目>/super/` 下按 flag 形态扫本轮新写文本，命中即写 `super/_candidate.txt`
   并以 `file:` 形式进入复核；事件 `candidate/scan`。
+
+## 3 题基准（2026-11-11，pi-ai）
+
+命令：
+
+```bash
+node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --ignore-prior \
+  --budget 2000000 --patch integrations/sdk-pi-ai.patch.yml \
+  --provider qwen-token-plan-cn --model deepseek-v4.1-flash --max-seconds 3300
+```
+
+| 题目 | 结果 | 花费 | 墙钟 | 备注 |
+| --- | --- | ---: | ---: | --- |
+| easycap | verified / pass | 1,166,390 | 2140 s | 4 worker + verifier 全跑通 |
+| bluetrace | failed / reject | 1,492,319 | 2290 s | 4 worker 均有 30–52 k 工具输出，无候选 |
+| lfsr | failed / reject | 1,300,972 | 2516 s | 3 个 worker 720 s 超时；t2 实际已解出 |
+
+- 合计 **1/3 verified，3,959,681 tok**。
+- `easycap` 的候选来自 verifier 复核：38 B TCP 单字节通道（sha256 `db5cff21…`），
+  提交形态 `KEY:32hex`，`eva-submit --dry-run` 与 verifier 记录一致。
+- `lfsr` 的 `super/t2/t2_candidates.json` 已经给出 64 字符的可打印明文与 seed，
+  但 worker 没写 `candidateFile`、兜底扫描只认 `flag{…}`/`FLAG:`/纯 hex 行，
+  于是整条流水线判「无候选」。**这是检测面窄，不是解题能力不足**。
+
+### 本轮暴露的问题（已修 / 待修）
+
+- 已修：recon 把 `super/` 旧产物当「已解过半」（`easycap` 的 t2 因此只回 `"finding":"pending"`）→
+  recon 文件清单排除 `super/ runs/ turns/ verify/`。
+- 已修：worker 回 `"finding":"pending"` 也算产出 → 空/pending/run 之类直接判任务失败。
+- 已修：`FLAG_SHAPE` 只匹配三种形态，JSON 里的人读明文（`inner_text`、`plaintext`、`key` 字段）
+  不会被识别；现在扫描器同时匹配「候选字段名 + 长度 ≥ 8 的可打印串」，扫描上限从 2 KB 放宽到 64 KB，乱码候选被过滤（自测 20/20；对 lfsr 的 `t2_candidates.json` 实测能取到那段 64 字符明文）。
+- 待修：hard 题 4 个任务、2 worker，单轮 720 s 仍偏紧（lfsr 三连超时）；
+  已按 difficulty 乘 1.5，但 recon 若把 hard 判成 medium 就不生效，应按 plan 的 route 取值。
 
 ## 下一步
 

@@ -288,6 +288,29 @@ await test('orchestrate：worker 不认答案时兜底扫描成候选', async ()
   assert.match(fs.readFileSync(path.join(challenge, relCandidate), 'utf8'), /FLAG:scan-only-123/)
 })
 
+await test('orchestrate：JSON 产物里的人读明文也能被兜底扫描认领', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-chal7-'))
+  fs.writeFileSync(path.join(challenge, 'a.bin'), 'x')
+  fs.mkdirSync(path.join(challenge, 'super', 't2'), { recursive: true })
+  fs.writeFileSync(
+    path.join(challenge, 'super', 't2', 'candidates.json'),
+    JSON.stringify({ best: { inner_text: 'f1nd_th3_hidden_key_0123456789' } }),
+  )
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-runs7-'))
+  const result = await orchestrate({
+    workspace: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 50000, convergeAt: 0.6, workerMax: 1, workerTokens: 4000, turnWallClockSec: 30, maxRounds: 1 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge({ finding: { candidate: '', candidateFile: '', confidence: 0.9 } }),
+    dryRun: true,
+    logger: () => {},
+  })
+  const relCandidate = result.verdict.candidate.replace(/^file:/, '')
+  assert.match(fs.readFileSync(path.join(challenge, relCandidate), 'utf8'), /f1nd_th3_hidden_key_0123456789/)
+})
+
 console.log('')
 if (failures.length) {
   console.error(`${passed} passed, ${failures.length} failed`)

@@ -1,6 +1,6 @@
-# EVAagent（P0）
+﻿# EVAagent（P0）
 
-> 状态：**P0 已实现**（CLI 可跑，离线链路自测 19/19；含工单模式）。**2026-11-10 首条 live 通过**：
+> 状态：**P0 已实现**（CLI 可跑，离线链路自测 20/20；含工单模式）。**2026-11-10 首条 live 通过**：
 > `easycap` 跑出 `verified / pass`，1.40 M tok（缓存折算后）、24.8 min，候选由 t1 落盘并经独立复核
 > （`runs/20261110110922-f5f9ee`）。P1 已落地：usage 缺失时按
 > 提示词+工具输出估算并放大（`estimateMultiplier`）、单题预算跨 run 累计（`perChallengeTokens` 扣历史）、
