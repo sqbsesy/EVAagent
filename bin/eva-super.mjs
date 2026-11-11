@@ -171,6 +171,7 @@ const result = await orchestrate({
   dryRun,
   signal: controller.signal,
   taskText,
+  hintText,
   priorSpent: prior.total,
   logger: args.json ? () => {} : (line) => console.log(line),
 })

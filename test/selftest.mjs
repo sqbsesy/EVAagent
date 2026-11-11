@@ -7,7 +7,7 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { extractJson } from '../lib/jsonx.mjs'
 import { Ledger, BudgetStop } from '../lib/ledger.mjs'
-import { composeWorker } from '../lib/prompts.mjs'
+import { composeRecon, composeWorker } from '../lib/prompts.mjs'
 import { orchestrate } from '../lib/run.mjs'
 import { MockBridge } from '../lib/sdk.mjs'
 import { listFiles, renderFileList, resolveChallenge } from '../lib/context.mjs'
@@ -346,3 +346,17 @@ if (failures.length) {
   process.exit(1)
 }
 console.log(`${passed}/${passed} passed`)
+await test('提示词：--notes 前情同时注入 recon 与 worker', async () => {
+  const recon = composeRecon({
+    challengeName: 'x', challengeDir: 'd', files: 'f', budget: 1000, hint: 'PRIOR_KNOWLEDGE_42',
+  })
+  assert.ok(recon.includes('PRIOR_KNOWLEDGE_42'), 'recon prompt should carry hint')
+  assert.ok(recon.includes('前情'), 'recon prompt should label hint section')
+  const worker = composeWorker({
+    task: { id: 't1', goal: 'g', acceptance: 'a' },
+    surface: { category: 'misc', difficulty: 'easy', entry: 'e', notes: '' },
+    challengeName: 'x', challengeDir: 'd', taskDir: 'td', workspace: 'w', budget: 1000,
+    hint: 'PRIOR_KNOWLEDGE_42',
+  })
+  assert.ok(worker.includes('PRIOR_KNOWLEDGE_42'), 'worker prompt should carry hint')
+})
