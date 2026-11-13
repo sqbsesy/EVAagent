@@ -1,5 +1,6 @@
 # 运行产物
 runs/
+retro/
 data/
 dist/
 node_modules/

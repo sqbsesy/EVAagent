@@ -12,7 +12,8 @@
     "eva-race": "bin/eva-race.mjs",
     "eva-board": "bin/eva-board.mjs",
     "eva-health": "bin/eva-health.mjs",
-    "eva-confirm": "bin/eva-confirm.mjs"
+    "eva-confirm": "bin/eva-confirm.mjs",
+    "eva-retro": "bin/eva-retro.mjs"
   },
   "scripts": {
     "selftest": "node test/selftest.mjs",
@@ -21,7 +22,8 @@
     "race": "node bin/eva-race.mjs",
     "board": "node bin/eva-board.mjs",
     "health": "node bin/eva-health.mjs --once",
-    "confirm": "node bin/eva-confirm.mjs"
+    "confirm": "node bin/eva-confirm.mjs",
+    "retro": "node bin/eva-retro.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -683,6 +683,45 @@ await test('B5 批量确认：单批 >5 拒绝，逐条 confirm 后置 done', as
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
+await test('D6 复盘：卡片字段齐全，facts 只写短结论且 id 递增', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-d6-ws-'))
+  const run = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-d6-run-'))
+  fs.mkdirSync(path.join(ws, '_tools', 'eva'), { recursive: true })
+  fs.mkdirSync(path.join(ws, '.dsh', 'memory'), { recursive: true })
+  fs.writeFileSync(path.join(ws, '_tools', 'eva', 'toolgate.mjs'), '')
+  fs.writeFileSync(path.join(ws, '.dsh', 'memory', 'facts.jsonl'), `${JSON.stringify({ id: 'F-7', challenge: 'x', claim: 'old', evidence: 'e', ts: 't', confidence: 'low' })}\n`)
+
+  fs.writeFileSync(path.join(run, 'meta.json'), JSON.stringify({ runId: 'r1', challenge: 'demo', staged: true }))
+  fs.writeFileSync(path.join(run, 'plan.json'), JSON.stringify({ surface: { category: 'misc', difficulty: 'easy' } }))
+  fs.writeFileSync(path.join(run, 'result.json'), JSON.stringify({
+    runId: 'r1', status: 'verified', spentTotal: 123456, verdict: { verdict: 'pass', reasons: ['复算通过'] },
+  }))
+  fs.writeFileSync(path.join(run, 'events.jsonl'), [
+    { ts: '2026-11-13T00:00:00Z', type: 'race/start' },
+    { ts: '2026-11-13T00:05:00Z', type: 'turn/end', measuredTokens: 1000 },
+  ].map((e) => JSON.stringify(e)).join('\n') + '\n')
+
+  const cardFile = path.join(run, 'retro.md')
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'eva-retro.mjs'), '--run', run, '--workspace', ws, '--out', cardFile], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const out = JSON.parse(r.stdout.trim())
+  assert.equal(out.fact.id, 'F-8')
+  assert.ok(out.claim.length <= 200, 'facts 只写短结论')
+  const card = fs.readFileSync(cardFile, 'utf8')
+  assert.ok(card.includes('failureFamily'))
+  assert.ok(card.includes('misc') && card.includes('easy'))
+  const facts = fs.readFileSync(path.join(ws, '.dsh', 'memory', 'facts.jsonl'), 'utf8').trim().split(/\r?\n/)
+  assert.equal(facts.length, 2)
+
+  const before = fs.readFileSync(path.join(ws, '.dsh', 'memory', 'facts.jsonl'), 'utf8')
+  const rd = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'eva-retro.mjs'), '--run', run, '--workspace', ws, '--out', cardFile, '--dry-run'], { encoding: 'utf8' })
+  assert.equal(rd.status, 0, rd.stderr)
+  assert.equal(fs.readFileSync(path.join(ws, '.dsh', 'memory', 'facts.jsonl'), 'utf8'), before, 'dry-run 不写 facts')
+
+  fs.rmSync(ws, { recursive: true, force: true })
+  fs.rmSync(run, { recursive: true, force: true })
+})
+
 console.log('')
 if (failures.length) {
   console.error(`${passed} passed, ${failures.length} failed`)

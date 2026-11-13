@@ -153,6 +153,7 @@ node bin/eva-health.mjs --once --console-port 8787 --events runs/demo
 | B5 批量确认 | `bin/eva-confirm.mjs` | 单批 ≤5 条、每条必须 `confirm:true`；`--submit` 才调用 `eva-submit`，`/orchestrator` 之外不自动提交 |
 | D3 看门狗 | `startWatchdog()`、`eva-health --watchdog` | 事件 15 min 不更新即报空转（exit 3），只报不杀，杀谁由调度器决定 |
 | D4 告警分级 | `alertLevel()`、`shouldEmitAlert()` | L1 决策 / L2 知晓 / L3 记录；L1 在 8 h 内最多 5 条，超出降 L3 写 `alert/suppressed` |
+| D6 复盘自动化 | `bin/eva-retro.mjs` | 从 `events.jsonl`/`plan.json`/`result.json` 生成复盘卡（题型/卡点/技能/耗时/成本/失败分类），并把**一两句**短结论写入 `.dsh/memory/facts.jsonl`，随后 `facts.mjs index`；`--dry-run` 不落盘 |
 
 P1 常用命令：
 
@@ -165,6 +166,10 @@ node bin/eva-confirm.mjs --race runs/<race-id> --file integrations/confirm-batch
 
 # 看门狗
 node bin/eva-health.mjs --watchdog --race runs/<race-id> --idle-minutes 15
+
+# 复盘（写卡 + 写 facts；--dry-run 只看不写）
+node bin/eva-retro.mjs --run runs/<run-id> --dry-run
+node bin/eva-retro.mjs --race runs/<race-id>
 ```
 
 ## live provider
