@@ -1,0 +1,7 @@
+{
+  "note": "B5 批量确认示例：单批最多 5 条，每条必须 confirm=true；--submit 时才需要 challengeId/groundId。",
+  "items": [
+    { "id": "easycap", "confirm": true },
+    { "id": "lfsr", "confirm": true }
+  ]
+}

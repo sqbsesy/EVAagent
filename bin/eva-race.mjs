@@ -6,6 +6,7 @@
 // 事件写入 runs/<raceId>/events.jsonl；状态写 pool.json 与 state.json。
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +14,9 @@ import {
   loadPool, savePool, loadSchedule, orderQueue, pickStartable, transition, decideMode,
   estimateMinutes, valueDensity, loadRaceState, saveRaceState, recordCheckpoint,
   reconcileCheckpoints, nextActionFor,
+  raceBudget, parallelFromSamples, pressureSample, shouldBreak,
+  strategyFingerprint, recentFingerprint, recordFingerprint,
+  loadRouting, pickSkills, shouldEmitAlert, alertLevel,
 } from '../lib/schedule.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -89,9 +93,10 @@ function readResult(runDir) {
   }
 }
 
-function runSupervisor({ workspace, challenge, budget, provider, model, patch, staged }) {
+function runSupervisor({ workspace, challenge, budget, provider, model, patch, staged, notes = '' }) {
   const args = [path.join(ROOT, 'bin', 'eva-super.mjs'), '--challenge', `work/${challenge.id}`, '--json', '--budget', String(budget)]
   if (staged) args.push('--staged')
+  if (notes) args.push('--notes', notes)
   if (provider) args.push('--provider', provider)
   if (model) args.push('--model', model)
   if (patch) args.push('--patch', patch)
@@ -126,6 +131,7 @@ async function main() {
   }
   const workspace = args.workspace ? path.resolve(args.workspace) : (findWorkspace(process.cwd()) ?? path.resolve(process.cwd()))
   const schedule = loadSchedule(path.join(ROOT, 'policies', 'schedule.json'))
+  const routing = loadRouting(path.join(ROOT, 'policies', 'routing.json'))
   const pool = loadPool(path.resolve(args.pool))
   const raceId = args.raceId || pool.raceId
   const outRoot = path.resolve(args.out || path.join(ROOT, 'runs', raceId))
@@ -138,7 +144,31 @@ async function main() {
   fs.mkdirSync(outRoot, { recursive: true })
   const state = loadRaceState(stateFile)
   savePool(poolFile, pool)
-  appendEvent(eventFile, 'race/start', { raceId, workspace, challenges: pool.challenges.length, maxParallel, dryRun: Boolean(args.dryRun) })
+
+  // A5：赛程预算池。显式 --budget 优先；否则按「题数×单题×0.7 − 10% 机动」给单题上限。
+  const poolBudget = raceBudget(pool, schedule, budget)
+  const perChallengeBudget = args.budget ? budget : poolBudget.hardCap
+  const samples = []
+  let lastParallel = args.maxParallel || null
+  let skippedByFingerprint = 0
+
+  const emitAlert = (kind, data = {}) => {
+    const decision = shouldEmitAlert(state, kind)
+    if (!decision.emit) {
+      appendEvent(eventFile, 'alert/suppressed', { kind, at: new Date().toISOString(), ...data })
+      return
+    }
+    appendEvent(eventFile, 'alert', { kind, level: decision.level, ...data })
+  }
+
+  appendEvent(eventFile, 'race/start', {
+    raceId,
+    workspace,
+    challenges: pool.challenges.length,
+    maxParallel,
+    dryRun: Boolean(args.dryRun),
+    budgetPool: { planned: poolBudget.planned, reserve: poolBudget.reserve, perChallenge: perChallengeBudget },
+  })
 
   // C2：重启先对账
   const check = reconcileCheckpoints(state)
@@ -163,7 +193,42 @@ async function main() {
       if (c.status === 'waiting_confirm') appendEvent(eventFile, 'race/await-confirm', { id: c.id, runId: c.runId })
     }
 
-    const startable = pickStartable(pool, { ...schedule, maxParallel }, pool.challenges.filter((c) => c.status === 'running').length)
+    // C1：采样内存压力，动态决定本轮并发（显式 --max-parallel 时不覆盖）。
+    samples.push(pressureSample(os))
+    if (samples.length > 6) samples.shift()
+    const effectiveParallel = args.maxParallel || parallelFromSamples(samples, schedule)
+    if (lastParallel !== effectiveParallel) {
+      appendEvent(eventFile, 'race/parallel', {
+        parallel: effectiveParallel,
+        pressure: Number(pressureSample(os).toFixed(3)),
+        samples: samples.map((s) => Number(s.toFixed(3))),
+      })
+      lastParallel = effectiveParallel
+    }
+
+    const runningNow = pool.challenges.filter((c) => c.status === 'running').length
+    const candidates = pickStartable(pool, { ...schedule, maxParallel: effectiveParallel }, runningNow)
+
+    // C5：同指纹 24 h 内不重复跑（没有信息增益）。全部被跳过时本轮直接停，避免空转。
+    const startable = []
+    for (const c of candidates) {
+      const { skills } = pickSkills(c, routing)
+      const fp = strategyFingerprint({ id: c.id, skills, promptVersion: 'p1' })
+      if (recentFingerprint(state, fp, { hours: schedule.fingerprintHours })) {
+        skippedByFingerprint += 1
+        appendEvent(eventFile, 'race/skip-fingerprint', { id: c.id, fingerprint: fp })
+        emitAlert('fingerprint-dedup', { id: c.id, fingerprint: fp })
+        continue
+      }
+      c._skills = skills
+      c._fingerprint = fp
+      startable.push(c)
+    }
+    if (!startable.length && candidates.length && skippedByFingerprint >= candidates.length) {
+      appendEvent(eventFile, 'race/idle', { reason: 'fingerprint-dedup', queued: pool.challenges.filter((c) => c.status === 'queued').length })
+      break
+    }
+
     if (!startable.length) {
       const pending = pool.challenges.filter((c) => c.status === 'running').length
       appendEvent(eventFile, 'race/idle', { pending, queued: pool.challenges.filter((c) => c.status === 'queued').length })
@@ -171,17 +236,29 @@ async function main() {
     } else {
       const jobs = []
       for (const c of startable) {
-        const mode = decideMode({ ...c, isContainer: /pwn|web/i.test(String(c.category)) }, schedule)
+        const route = pickSkills(c, routing)
+        const mode = route.mode || decideMode({ ...c, isContainer: /pwn|web/i.test(String(c.category)) }, schedule)
+        const skills = c._skills ?? route.skills
+        const fp = c._fingerprint ?? strategyFingerprint({ id: c.id, skills, promptVersion: 'p1' })
         appendEvent(eventFile, 'race/dispatch', {
-          id: c.id, mode, estMinutes: estimateMinutes(c), density: Number(valueDensity(c).toFixed(3)), staged: mode === 'supervisor',
+          id: c.id,
+          mode,
+          estMinutes: estimateMinutes(c),
+          density: Number(valueDensity(c).toFixed(3)),
+          staged: mode === 'supervisor',
+          skills,
+          fingerprint: fp,
+          budget: perChallengeBudget,
         })
-        transition(pool, c.id, 'running', { startedAt: new Date().toISOString() })
+        transition(pool, c.id, 'running', { startedAt: new Date().toISOString(), attempts: (c.attempts ?? 0) + 1 })
+        recordFingerprint(state, fp, { challengeId: c.id })
         if (args.dryRun) {
           jobs.push(Promise.resolve({ id: c.id, dry: true }))
           continue
         }
+        const notes = skills.length ? `建议技能：${skills.join('、')}（匹配时用 skill 工具加载）` : ''
         jobs.push(runSupervisor({
-          workspace, challenge: c, budget, staged: mode === 'supervisor',
+          workspace, challenge: c, budget: perChallengeBudget, staged: mode === 'supervisor', notes,
           provider: process.env.EVA_RACE_PROVIDER, model: process.env.EVA_RACE_MODEL, patch: process.env.EVA_RACE_PATCH,
         }).then((r) => ({ id: c.id, ...r })))
       }
@@ -202,14 +279,31 @@ async function main() {
           appendEvent(eventFile, 'race/verified', { id: c.id, runId: result.runId, spent, candidateFile: result.submission?.candidateFile ?? null })
         } else {
           const cls = classifyFailure(result)
-          const streak = (state.challenges[c.id]?.streak?.[cls] ?? 0) + 1
-          state.challenges[c.id] = { ...(state.challenges[c.id] || {}), streak: { ...(state.challenges[c.id]?.streak || {}), [cls]: streak } }
+          const prev = state.challenges[c.id] || {}
+          const streak = (prev.streak?.[cls] ?? 0) + 1
+          const attempts = Number(prev.attempts ?? c.attempts ?? 1) || 1
+          state.challenges[c.id] = {
+            ...prev,
+            attempts,
+            streak: { ...(prev.streak || {}), [cls]: streak },
+            spent: Number(prev.spent ?? 0) + spent,
+          }
           const action = nextActionFor(cls, streak)
-          appendEvent(eventFile, 'failure/classified', { id: c.id, class: cls, streak, action })
-          if (action === 'requeue-wait-lease') {
+          const breaker = shouldBreak({ attempts, streak, spent: state.challenges[c.id].spent, perChallenge: perChallengeBudget }, schedule)
+          appendEvent(eventFile, 'failure/classified', {
+            id: c.id, class: cls, streak, action, attempts,
+            breaker: breaker.tripped ? breaker.reason : null,
+          })
+          if (breaker.tripped) {
+            transition(pool, c.id, 'abandoned', { spent, note: `abandoned:${cls}:${breaker.reason}` })
+            appendEvent(eventFile, 'race/abandoned', { id: c.id, class: cls, reason: breaker.reason })
+            emitAlert(cls === 'env-unavailable' ? 'env-unavailable' : cls === 'budget-exhausted' ? 'budget-exhausted' : 'all-abandoned', { id: c.id })
+            exitCode = 3
+          } else if (action === 'requeue-wait-lease') {
             transition(pool, c.id, 'queued', { spent, note: `requeue:${cls}` })
           } else if (cls === 'budget-exhausted' || streak >= 3) {
             transition(pool, c.id, 'abandoned', { spent, note: `abandoned:${cls}` })
+            emitAlert(cls === 'budget-exhausted' ? 'budget-exhausted' : 'all-abandoned', { id: c.id })
             exitCode = 3
           } else {
             transition(pool, c.id, 'queued', { spent, note: `retry:${cls}` })

@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "note": "A2 双模调度阈值 + A4 并行上限；比赛默认 race。预算池见 A5（P1）。",
+  "version": 2,
+  "note": "A2 双模阈值 + A4 并行上限 + P1：A5 预算池、C1 并发动态化、C4 熔断、C5 指纹、B5 批量确认。",
   "soloMaxMinutes": 15,
   "maxParallel": 2,
   "workerMax": 2,
@@ -8,5 +8,14 @@
   "flagWaitMinutes": 30,
   "poolRefreshMinutes": 5,
   "upgradeAfterMinutes": 15,
-  "upgradeOnce": true
+  "upgradeOnce": true,
+  "budgetShare": 0.7,
+  "budgetReserveShare": 0.1,
+  "parallelMin": 1,
+  "parallelMax": 3,
+  "sampleSeconds": 30,
+  "fingerprintHours": 24,
+  "breakerStreak": 2,
+  "breakerAttempts": 3,
+  "confirmBatchMax": 5
 }

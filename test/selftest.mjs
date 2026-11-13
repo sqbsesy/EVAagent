@@ -5,6 +5,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { extractJson } from '../lib/jsonx.mjs'
 import { Ledger, BudgetStop } from '../lib/ledger.mjs'
 import { composeRecon, composeWorker } from '../lib/prompts.mjs'
@@ -14,8 +16,15 @@ import { listFiles, renderFileList, resolveChallenge, findProbes, renderProbes }
 import { effectiveRunBudget, spentFromRuns, admitTurn } from '../lib/budget.mjs'
 import { makeChallenge, fillRate, missingFields, inferFromText } from '../lib/challenge.mjs'
 import { acquire, heartbeat, release, reclaimExpired, peek } from '../lib/env-lease.mjs'
-import { normalizePool, orderQueue, decideMode, transition, pickStartable, recordCheckpoint, reconcileCheckpoints, nextActionFor } from '../lib/schedule.mjs'
-import { check } from '../lib/health.mjs'
+import { normalizePool, orderQueue, decideMode, transition, pickStartable, recordCheckpoint, reconcileCheckpoints, nextActionFor,
+  raceBudget, pressureSample, parallelFromSamples, shouldBreak,
+  strategyFingerprint, recentFingerprint, recordFingerprint,
+  pickSkills, priorDifficulty, combineDifficulty, difficultyAgreement,
+  alertLevel, shouldEmitAlert } from '../lib/schedule.mjs'
+import { check, startWatchdog } from '../lib/health.mjs'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ROOT = path.resolve(__dirname, '..')
 
 let passed = 0
 const failures = []
@@ -558,6 +567,120 @@ await test('B4 计划硬校验：缺 artifact/acceptance 拒整份并降级单�
   assert.ok(events.includes('plan/degraded'), 'should degrade after second rejection')
   fs.rmSync(challenge, { recursive: true, force: true })
   fs.rmSync(outRoot, { recursive: true, force: true })
+})
+
+await test('A5 预算池：题数×单题×0.7，留 10% 机动，单题上限不超计划额', async () => {
+  const pool = normalizePool({ challenges: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }] })
+  const b = raceBudget(pool, { defaultBudgetTokens: 2500000, budgetShare: 0.7, budgetReserveShare: 0.1 })
+  assert.equal(b.count, 4)
+  assert.equal(b.gross, 10000000)
+  assert.equal(b.planned, 7000000)
+  assert.equal(b.reserve, 700000)
+  assert.ok(b.hardCap <= 2500000)
+  assert.ok(b.hardCap >= 1)
+})
+
+await test('C1 并发：三次采样取最小档，压力高则降到 1', async () => {
+  assert.equal(parallelFromSamples([], { parallelMin: 1, parallelMax: 3 }), 3)
+  assert.equal(parallelFromSamples([0.2, 0.3, 0.1], { parallelMin: 1, parallelMax: 3 }), 3)
+  assert.equal(parallelFromSamples([0.2, 0.6, 0.3], { parallelMin: 1, parallelMax: 3 }), 2)
+  assert.equal(parallelFromSamples([0.9, 0.2, 0.3], { parallelMin: 1, parallelMax: 3 }), 1)
+  assert.equal(pressureSample({ totalmem: 100, freemem: 25 }), 0.75)
+  assert.equal(pressureSample(null), 0)
+})
+
+await test('C4 熔断：连败/超次/超预算各自触发', async () => {
+  const s = { breakerStreak: 2, breakerAttempts: 3 }
+  assert.equal(shouldBreak({ attempts: 1, streak: 1, spent: 10, perChallenge: 1000 }, s).tripped, false)
+  assert.equal(shouldBreak({ attempts: 4, streak: 0, spent: 10, perChallenge: 1000 }, s).reason, 'max-attempts')
+  assert.equal(shouldBreak({ attempts: 2, streak: 2, spent: 10, perChallenge: 1000 }, s).reason, 'same-strategy-no-candidate')
+  assert.equal(shouldBreak({ attempts: 2, streak: 0, spent: 1000, perChallenge: 1000 }, s).reason, 'budget')
+})
+
+await test('C5 策略指纹：同输入稳定，24h 窗口内判重', async () => {
+  const a = strategyFingerprint({ id: 'easycap', skills: ['ctf-forensics', 'ctf-misc'], promptVersion: 'p1' })
+  const b = strategyFingerprint({ id: 'easycap', skills: ['ctf-misc', 'ctf-forensics'], promptVersion: 'p1' })
+  const c = strategyFingerprint({ id: 'easycap', skills: ['ctf-forensics'], promptVersion: 'p1' })
+  assert.equal(a, b, '技能顺序不影响指纹')
+  assert.notEqual(a, c, '技能集变化应改变指纹')
+  const state = {}
+  recordFingerprint(state, a, { now: 1000, challengeId: 'easycap' })
+  assert.equal(recentFingerprint(state, a, { now: 1000 + 3600 * 1000, hours: 24 }), true)
+  assert.equal(recentFingerprint(state, a, { now: 1000 + 25 * 3600 * 1000, hours: 24 }), false)
+})
+
+await test('B2 题型路由：每题技能 ≤3，可覆盖模式', async () => {
+  const routing = { forensics: { skills: ['a', 'b', 'c', 'd'], mode: 'supervisor' }, misc: { skills: [] } }
+  const r = pickSkills({ category: 'forensics' }, routing)
+  assert.equal(r.skills.length, 3)
+  assert.equal(r.mode, 'supervisor')
+  assert.deepEqual(pickSkills({ category: 'unknown' }, routing).skills, [])
+})
+
+await test('B3 难度双通道：取高，先验需 ≥3 条样本，一致率可计算', async () => {
+  assert.equal(combineDifficulty('easy', 'hard'), 'hard')
+  assert.equal(combineDifficulty('hard', 'medium'), 'hard')
+  assert.equal(combineDifficulty(null, 'medium'), 'medium')
+  assert.equal(combineDifficulty('easy', null), 'easy')
+  const history = [
+    { category: 'forensics', solved: false }, { category: 'forensics', solved: false },
+    { category: 'forensics', solved: false },
+  ]
+  assert.equal(priorDifficulty(history, { category: 'forensics' }), 'hard')
+  assert.equal(priorDifficulty(history.slice(0, 2), { category: 'forensics' }), null)
+  assert.equal(difficultyAgreement([{ model: 'easy', prior: 'easy' }, { model: 'hard', prior: 'easy' }]).rate, 0.5)
+})
+
+await test('D4 告警分级：L1 有 8h 上限，超出降为 L3', async () => {
+  assert.equal(alertLevel('budget-exhausted'), 'L1')
+  assert.equal(alertLevel('awaiting-confirm'), 'L2')
+  assert.equal(alertLevel('whatever'), 'L3')
+  const state = {}
+  const now = 1000
+  for (let i = 0; i < 5; i += 1) assert.equal(shouldEmitAlert(state, 'stalled', { now: now + i, capL1: 5 }).emit, true)
+  const capped = shouldEmitAlert(state, 'stalled', { now: now + 10, capL1: 5 })
+  assert.equal(capped.emit, false)
+  assert.equal(capped.level, 'L3')
+  assert.equal(shouldEmitAlert(state, 'stalled', { now: now + 9 * 3600 * 1000, capL1: 5 }).emit, true, '窗口外应重新放行')
+})
+
+await test('D3 看门狗：事件过期即判空转并回调', async () => {
+  const stalls = []
+  const wd = startWatchdog({ intervalMs: 10, idleMs: 50, lastEventAt: () => Date.now() - 1000, onStall: (i) => stalls.push(i) })
+  const r = wd.tick()
+  wd.stop()
+  assert.equal(r.stalled, true)
+  assert.equal(stalls.length, 1)
+  const fresh = startWatchdog({ intervalMs: 10, idleMs: 50, lastEventAt: () => Date.now() })
+  assert.equal(fresh.tick().stalled, false)
+  fresh.stop()
+})
+
+await test('B5 批量确认：单批 >5 拒绝，逐条 confirm 后置 done', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-b5-'))
+  const pool = normalizePool({ challenges: Array.from({ length: 7 }, (_, i) => ({ id: `c${i + 1}`, score: 100 })) })
+  for (const c of pool.challenges) c.status = 'waiting_confirm'
+  fs.writeFileSync(path.join(dir, 'pool.json'), JSON.stringify(pool, null, 2))
+  fs.writeFileSync(path.join(dir, 'events.jsonl'), '')
+
+  const tooMany = path.join(dir, 'big.json')
+  fs.writeFileSync(tooMany, JSON.stringify({ items: pool.challenges.slice(0, 6).map((c) => ({ id: c.id, confirm: true })) }))
+  const r1 = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'eva-confirm.mjs'), '--race', dir, '--file', tooMany], { encoding: 'utf8' })
+  assert.equal(r1.status, 2, r1.stderr)
+
+  const noConfirm = path.join(dir, 'noconfirm.json')
+  fs.writeFileSync(noConfirm, JSON.stringify({ items: [{ id: 'c1', confirm: false }] }))
+  assert.equal(spawnSync(process.execPath, [path.join(ROOT, 'bin', 'eva-confirm.mjs'), '--race', dir, '--file', noConfirm], { encoding: 'utf8' }).status, 2)
+
+  const ok = path.join(dir, 'ok.json')
+  fs.writeFileSync(ok, JSON.stringify({ items: [{ id: 'c1', confirm: true }, { id: 'c2', confirm: true }] }))
+  const r3 = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'eva-confirm.mjs'), '--race', dir, '--file', ok], { encoding: 'utf8' })
+  assert.equal(r3.status, 0, r3.stderr)
+  const after = JSON.parse(fs.readFileSync(path.join(dir, 'pool.json'), 'utf8'))
+  assert.equal(after.challenges[0].status, 'done')
+  assert.equal(after.challenges[1].status, 'done')
+  assert.ok(fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').includes('race/confirm-batch'))
+  fs.rmSync(dir, { recursive: true, force: true })
 })
 
 console.log('')

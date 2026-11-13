@@ -1,0 +1,9 @@
+{
+  "forensics": { "skills": ["ctf-forensics"], "mode": null },
+  "reverse": { "skills": ["ctf-reverse"], "mode": null },
+  "crypto": { "skills": ["ctf-crypto"], "mode": null },
+  "web": { "skills": ["ctf-web"], "mode": null },
+  "pwn": { "skills": ["ctf-pwn"], "mode": null },
+  "misc": { "skills": ["ctf-misc"], "mode": null },
+  "ai-ml": { "skills": ["ctf-ai-ml"], "mode": null }
+}

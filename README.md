@@ -1,6 +1,6 @@
-# EVAagent（P0）
+# EVAagent（P0 + P1）
 
-> 状态：**P0 + 赛程调度（P0 清单 11 条）已实现**（离线自测 35/35；含工单模式、脚手架、前情注入、
+> 状态：**P0 11 条 + P1 9 条已实现**（离线自测 44/44；含工单模式、脚手架、前情注入、
 > **预置探针 / 串行阶段 / 起跑前预算预留**三机制；2026-11-13 又补上赛程层的调度、租约、
 > 断点、看板与心跳，见下文「赛程调度（P0）」）。**2026-11-10 首条 live 通过**：
 > `easycap` 跑出 `verified / pass`，1.40 M tok（缓存折算后）、24.8 min，候选由 t1 落盘并经独立复核
@@ -137,6 +137,35 @@ node bin/eva-health.mjs --once --console-port 8787 --events runs/demo
 | D1 看板 | `bin/eva-board.mjs` | 只读六块（题池/在跑/待确认/预算/租约/告警），`/api/race`，5 s 自刷新，不写盘 |
 | D2 心跳 | `lib/health.mjs`、`bin/eva-health.mjs` | 每 60 s 查控制台端口/最近事件/运行时 pid；连续 3 次失败才告警，同异常 10 min 去重 |
 | D5 凭据 | 全仓库 | 只写环境变量名（`apiKeyEnv`），检索无明文 token；`policies/submit.json` 仍 `manual` |
+
+## 赛程调度（P1）
+
+按同一文档批次二实现，9 条全部落地：
+
+| 条目 | 落点 | 行为 |
+| --- | --- | --- |
+| A5 赛程预算池 | `raceBudget()` | 计划额 = 题数 × 单题预算 × `budgetShare(0.7)`，另留 `budgetReserveShare(0.1)` 机动；`--budget` 显式给出时不压；否则单题用 `hardCap` |
+| C1 并发动态化 | `pressureSample()`、`parallelFromSamples()` | 每轮采样内存压力，取最近三次最差档：>0.75→1、>0.55→2、否则 `parallelMax(3)`；变化写 `race/parallel` |
+| C4 单题熔断 | `shouldBreak()` | 同策略连败 2 次、或尝试 ≥3 次、或单题花费吃满 → `abandoned` + `race/abandoned`，退出码 3 |
+| C5 策略指纹 | `strategyFingerprint()`、`recentFingerprint()` | 题号+技能集+提示词版本 → 12 位指纹；24 h 内重复指纹跳过并写 `race/skip-fingerprint` |
+| B2 题型路由 | `policies/routing.json`、`pickSkills()` | 按题型给技能（≤3 个）并可选覆盖双模；技能以 `--notes` 建议注入 recon |
+| B3 难度双通道 | `priorDifficulty()`、`combineDifficulty()` | 历史先验需 ≥3 条样本；与模型判断取高（难者优先）；`difficultyAgreement` 报一致率 |
+| B5 批量确认 | `bin/eva-confirm.mjs` | 单批 ≤5 条、每条必须 `confirm:true`；`--submit` 才调用 `eva-submit`，`/orchestrator` 之外不自动提交 |
+| D3 看门狗 | `startWatchdog()`、`eva-health --watchdog` | 事件 15 min 不更新即报空转（exit 3），只报不杀，杀谁由调度器决定 |
+| D4 告警分级 | `alertLevel()`、`shouldEmitAlert()` | L1 决策 / L2 知晓 / L3 记录；L1 在 8 h 内最多 5 条，超出降 L3 写 `alert/suppressed` |
+
+P1 常用命令：
+
+```bash
+# 调度（显式 --budget 时不启用预算池上限）
+node bin/eva-race.mjs --pool integrations/race-pool.example.json --race-id race-$(date +%m%d%H%M) --interval 30
+
+# 批量确认（单批 ≤5，仍逐条 confirm）
+node bin/eva-confirm.mjs --race runs/<race-id> --file integrations/confirm-batch.example.json --dry-run
+
+# 看门狗
+node bin/eva-health.mjs --watchdog --race runs/<race-id> --idle-minutes 15
+```
 
 ## live provider
 

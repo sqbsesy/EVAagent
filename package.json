@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "EVA Supervisor — 把单会话硬解升级为有预算闸、证据链与复核的解题流水线",
+  "description": "EVA Supervisor：把单会话直解升级为有预算闸、证据链与复核的解题流水线",
   "bin": {
     "eva-super": "bin/eva-super.mjs",
     "eva-submit": "bin/eva-submit.mjs",
@@ -11,7 +11,8 @@
     "eva-bench": "bin/eva-bench.mjs",
     "eva-race": "bin/eva-race.mjs",
     "eva-board": "bin/eva-board.mjs",
-    "eva-health": "bin/eva-health.mjs"
+    "eva-health": "bin/eva-health.mjs",
+    "eva-confirm": "bin/eva-confirm.mjs"
   },
   "scripts": {
     "selftest": "node test/selftest.mjs",
@@ -19,7 +20,8 @@
     "bench": "node bin/eva-bench.mjs",
     "race": "node bin/eva-race.mjs",
     "board": "node bin/eva-board.mjs",
-    "health": "node bin/eva-health.mjs --once"
+    "health": "node bin/eva-health.mjs --once",
+    "confirm": "node bin/eva-confirm.mjs"
   },
   "engines": {
     "node": ">=22"
