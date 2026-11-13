@@ -8,12 +8,18 @@
     "eva-super": "bin/eva-super.mjs",
     "eva-submit": "bin/eva-submit.mjs",
     "eva-replay": "bin/eva-replay.mjs",
-    "eva-bench": "bin/eva-bench.mjs"
+    "eva-bench": "bin/eva-bench.mjs",
+    "eva-race": "bin/eva-race.mjs",
+    "eva-board": "bin/eva-board.mjs",
+    "eva-health": "bin/eva-health.mjs"
   },
   "scripts": {
     "selftest": "node test/selftest.mjs",
     "dry-run": "node bin/eva-super.mjs --dry-run",
-    "bench": "node bin/eva-bench.mjs"
+    "bench": "node bin/eva-bench.mjs",
+    "race": "node bin/eva-race.mjs",
+    "board": "node bin/eva-board.mjs",
+    "health": "node bin/eva-health.mjs --once"
   },
   "engines": {
     "node": ">=22"

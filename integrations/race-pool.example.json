@@ -1,0 +1,31 @@
+{
+  "raceId": "race-demo",
+  "mode": "race",
+  "challenges": [
+    {
+      "id": "easycap",
+      "title": "网络抓包取证",
+      "category": "forensics",
+      "difficulty": "easy",
+      "score": 300,
+      "estMinutes": 20,
+      "status": "queued"
+    },
+    {
+      "id": "lfsr",
+      "title": "LFSR 逆向",
+      "category": "reverse",
+      "difficulty": "medium",
+      "score": 500,
+      "status": "queued"
+    },
+    {
+      "id": "bluetrace",
+      "title": "蓝牙抓包还原",
+      "category": "forensics",
+      "difficulty": "hard",
+      "score": 800,
+      "status": "queued"
+    }
+  ]
+}

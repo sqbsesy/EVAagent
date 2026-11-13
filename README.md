@@ -1,7 +1,8 @@
 # EVAagent（P0）
 
-> 状态：**P0 已实现**（CLI 可跑，离线链路自测 28/28；含工单模式、脚手架、前情注入，以及
-> **预置探针 / 串行阶段 / 起跑前预算预留**三机制）。**2026-11-10 首条 live 通过**：
+> 状态：**P0 + 赛程调度（P0 清单 11 条）已实现**（离线自测 35/35；含工单模式、脚手架、前情注入、
+> **预置探针 / 串行阶段 / 起跑前预算预留**三机制；2026-11-13 又补上赛程层的调度、租约、
+> 断点、看板与心跳，见下文「赛程调度（P0）」）。**2026-11-10 首条 live 通过**：
 > `easycap` 跑出 `verified / pass`，1.40 M tok（缓存折算后）、24.8 min，候选由 t1 落盘并经独立复核
 > （`runs/20261110110922-f5f9ee`）。P1 已落地：usage 缺失时按
 > 提示词+工具输出估算并放大（`estimateMultiplier`）、单题预算跨 run 累计（`perChallengeTokens` 扣历史）、
@@ -48,7 +49,7 @@ EVA 的 **Supervisor 层**：一个负责侦察、分流、拆解、分派、仲
 | `workflows/` | DSH workflow 脚本（扇出与复核） |
 | `policies/` | 预算、提交、工具白名单硬闸 |
 | `lib/` | SDK JSON-RPC 客户端、台账、上下文、提示词、编排 |
-| `bin/` | `eva-super`（入口）、`eva-submit`（提交）、`eva-replay`（回放）、`eva-bench`（3 题基准） |
+| `bin/` | `eva-super`（入口）、`eva-submit`（提交）、`eva-replay`（回放）、`eva-bench`（3 题基准）、`eva-race`（赛程调度）、`eva-board`（只读看板）、`eva-health`（心跳体检） |
 | `test/` | 离线自测（`node test/selftest.mjs`） |
 | `integrations/` | 与外部编排器对接的示例配置（`dsh-superagent` profile patch） |
 | `runs/` | 运行产物（gitignored） |
@@ -96,6 +97,13 @@ node bin/eva-super.mjs --challenge work/<题目目录> --ignore-prior
 # 8) 串行阶段：按 dependsOn 逐段跑，每段 10 min 硬超时、必须落盘
 node bin/eva-super.mjs --challenge work/<题目目录> --staged --ignore-prior \
   --patch integrations/sdk-pi-ai.patch.yml --provider qwen-token-plan-cn --model deepseek-v4.1-flash
+
+# 9) 赛程调度：读题池、按价值密度出队、双模分派（先干跑）
+node bin/eva-race.mjs --pool integrations/race-pool.example.json --dry-run --once --race-id demo
+
+# 10) 赛程看板（只读）与心跳体检
+node bin/eva-board.mjs --runs ./runs --race demo --snapshot
+node bin/eva-health.mjs --once --console-port 8787 --events runs/demo
 ```
 
 产出：`runs/<runId>/{meta,plan,state,events.jsonl,ledger,verdict,result,report}.json|md`
@@ -111,6 +119,24 @@ node bin/eva-super.mjs --challenge work/<题目目录> --staged --ignore-prior \
 
 `--stage-seconds <n>` 覆盖单段墙钟（≥60）；`policies/budget.json` 的 `reserveShare`（默认 0.2）控制预留比例。
 事件：`probes/found`、`plan/staged-invalid`、`turn/admit`、`turn/over-cap`、`stage/artifact`、`stage/missing`、`stage/skipped`、`stage/blocked`。
+
+## 赛程调度（P0）
+
+按 `eva-schedule-optimization-plan.md` 的批次一实现，11 条全部落地：
+
+| 条目 | 落点 | 行为 |
+| --- | --- | --- |
+| A1 赛程调度 | `lib/schedule.mjs`、`bin/eva-race.mjs` | 读 `pool.json`，按 `分值/预计耗时` 出队；状态机 `queued→running→waiting_confirm→done/abandoned`；事件 `race/*`，重启读回 `state.json` |
+| A2 双模 | `decideMode()` + `policies/schedule.json` | 预计 ≤15 min 走单会话直解，>15 min 或容器 + pwn/web 走 Supervisor（`--staged`）；难题 15 min 无候选只升级一次 |
+| A3 环境租约 | `lib/env-lease.mjs` | `acquire/heartbeat/release/reclaimExpired/peek`，`wx` 锁 + 原子写，TTL 10 min，悬挂 30 s 回收 |
+| A4 跨题并行 | `pickStartable()` | `race` 模式多题各一 worker，槽位由 `maxParallel` 控；名额满时挂起最新任务而不是杀进程 |
+| B1 赛题结构化 | `lib/challenge.mjs` | 每个字段带 `{value,source,confidence}`；缺失记 `null`+`unknown`，不猜；`fillRate`/`missingFields` |
+| B4 粒度硬校验 | `lib/run.mjs` | 每个子任务必须有 goal/deliverable/acceptance（staged 还要 artifact）；缺一写 `plan/rejected` 并回灌重试一次，二次失败 `plan/degraded` 降级单线 |
+| C2 断点续跑 | `recordCheckpoint/reconcileCheckpoints` | 记阶段/产物 sha256/花费；重启对账，哈希一致才跳过 |
+| C3 失败分类 | `nextActionFor()` | 五类（timeout/no-candidate/budget-exhausted/format-invalid/env-unavailable）各配动作，事件 `failure/classified`；同类两次必须换策略 |
+| D1 看板 | `bin/eva-board.mjs` | 只读六块（题池/在跑/待确认/预算/租约/告警），`/api/race`，5 s 自刷新，不写盘 |
+| D2 心跳 | `lib/health.mjs`、`bin/eva-health.mjs` | 每 60 s 查控制台端口/最近事件/运行时 pid；连续 3 次失败才告警，同异常 10 min 去重 |
+| D5 凭据 | 全仓库 | 只写环境变量名（`apiKeyEnv`），检索无明文 token；`policies/submit.json` 仍 `manual` |
 
 ## live provider
 

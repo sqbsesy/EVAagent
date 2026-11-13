@@ -12,6 +12,10 @@ import { orchestrate, orderStages, stageSeconds } from '../lib/run.mjs'
 import { MockBridge } from '../lib/sdk.mjs'
 import { listFiles, renderFileList, resolveChallenge, findProbes, renderProbes } from '../lib/context.mjs'
 import { effectiveRunBudget, spentFromRuns, admitTurn } from '../lib/budget.mjs'
+import { makeChallenge, fillRate, missingFields, inferFromText } from '../lib/challenge.mjs'
+import { acquire, heartbeat, release, reclaimExpired, peek } from '../lib/env-lease.mjs'
+import { normalizePool, orderQueue, decideMode, transition, pickStartable, recordCheckpoint, reconcileCheckpoints, nextActionFor } from '../lib/schedule.mjs'
+import { check } from '../lib/health.mjs'
 
 let passed = 0
 const failures = []
@@ -461,6 +465,99 @@ await test('stageSeconds：按段声明取墙钟，缺省用全局值并被 1200
   assert.equal(stageSeconds({}, 600), 600)
   assert.equal(stageSeconds({ maxSeconds: 5000 }, 600), 1200)
   assert.equal(stageSeconds({ maxSeconds: 10 }, 600), 60)
+})
+
+await test('B1 challenge: 缺失字段为 null 且带来源，推断不猜', () => {
+  const c = makeChallenge({ id: 'A-1', title: 'demo', category: 'web', score: 300 }, { source: 'api' })
+  assert.equal(c.id.value, 'A-1')
+  assert.equal(c.id.source, 'api')
+  assert.equal(c.difficulty.value, null)
+  assert.equal(c.difficulty.source, 'unknown')
+  assert.ok(missingFields(c).includes('difficulty'))
+  const inferred = inferFromText('附件是一个 pcapng 抓包，flag{...}', c)
+  assert.equal(inferred.category.value, 'web') // existing value wins
+  const rate = fillRate(c)
+  assert.ok(rate.rate > 0 && rate.rate < 1)
+})
+
+await test('A3 env-lease: 抢占/续租/释放/过期回收', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-lease-'))
+  const file = path.join(dir, 'env.lease')
+  assert.equal(acquire({ file, holder: 'run-a', challenge: 'c1', ttlMs: 50 }).ok, true)
+  const b = acquire({ file, holder: 'run-b', challenge: 'c1', ttlMs: 50 })
+  assert.equal(b.ok, false)
+  assert.equal(b.holder, 'run-a')
+  assert.equal(heartbeat({ file, holder: 'run-b', ttlMs: 50 }).ok, false)
+  assert.equal(heartbeat({ file, holder: 'run-a', ttlMs: 50 }).ok, true)
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80)
+  let destroyed = null
+  const reclaimed = reclaimExpired({ file, destroy: (l) => { destroyed = l.holder } })
+  assert.equal(reclaimed.reclaimed.holder, 'run-a')
+  assert.equal(destroyed, 'run-a')
+  assert.equal(acquire({ file, holder: 'run-b', challenge: 'c1', ttlMs: 1000 }).ok, true)
+  assert.equal(release({ file, holder: 'run-b', destroy: () => {} }).released, true)
+  assert.equal(peek({ file }), null)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+await test('A1/A2/A4 schedule: 排序、双模、并行槽位、状态机', () => {
+  const pool = normalizePool({
+    raceId: 'r1',
+    challenges: [
+      { id: 'slow', score: 500, difficulty: 'hard', category: 'forensics' },
+      { id: 'fast', score: 100, difficulty: 'easy', category: 'misc' },
+      { id: 'web', score: 200, difficulty: 'easy', category: 'web' },
+    ],
+  })
+  const order = orderQueue(pool)
+  assert.equal(order[0].id, 'web')
+  assert.equal(decideMode(pool.challenges[2]), 'solo')
+  assert.equal(decideMode({ ...pool.challenges[2], category: 'pwn', isContainer: true }), 'supervisor')
+  assert.equal(pickStartable(pool, { maxParallel: 2 }).length, 2)
+  assert.equal(transition(pool, 'fast', 'done'), null)
+  assert.equal(transition(pool, 'fast', 'running').to, 'running')
+  assert.equal(transition(pool, 'fast', 'queued').to, 'queued')
+  assert.equal(nextActionFor('no-candidate', 2), 'change-strategy')
+})
+
+await test('C2 schedule: 产物哈希对账发现篡改', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-ckpt-'))
+  const art = path.join(dir, 'a.json')
+  fs.writeFileSync(art, '{"x":1}')
+  const state = { challenges: {} }
+  recordCheckpoint(state, 'c1', { stage: 1, artifacts: [art], spentDelta: 100 })
+  assert.equal(reconcileCheckpoints(state)[0].ok, true)
+  fs.writeFileSync(art, '{"x":2}')
+  assert.equal(reconcileCheckpoints(state)[0].ok, false)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+await test('D2 health: 端口不通即失败', async () => {
+  const r = await check({ consolePort: 1, staleEventMs: 1000 })
+  assert.equal(r.ok, false)
+  assert.ok(r.items.some((i) => i.name === 'console' && i.ok === false))
+})
+
+await test('B4 计划硬校验：缺 artifact/acceptance 拒整份并降级单线', async () => {
+  const challenge = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-b4-c-'))
+  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eva-b4-o-'))
+  fs.writeFileSync(path.join(challenge, 'readme.txt'), 'hello')
+  const result = await orchestrate({
+    challengeName: challenge,
+    challengeDir: challenge,
+    outRoot,
+    budgetConfig: { perRunTokens: 100000, workerMax: 1, turnWallClockSec: 60, convergeAt: 0.6, stagedTurnSec: 60 },
+    submitPolicy: { mode: 'manual' },
+    bridgeFactory: () => new MockBridge({ surface: { category: 'misc', difficulty: 'easy', entry: 'readme.txt', hypotheses: [{ id: 't1', goal: 'g', deliverable: 'd' }] } }),
+    dryRun: true,
+    staged: true,
+    logger: () => {},
+  })
+  const events = fs.readFileSync(path.join(result.runDir, 'events.jsonl'), 'utf8')
+  assert.ok(events.includes('plan/rejected'), 'should emit plan/rejected')
+  assert.ok(events.includes('plan/degraded'), 'should degrade after second rejection')
+  fs.rmSync(challenge, { recursive: true, force: true })
+  fs.rmSync(outRoot, { recursive: true, force: true })
 })
 
 console.log('')

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "note": "A2 双模调度阈值 + A4 并行上限；比赛默认 race。预算池见 A5（P1）。",
+  "soloMaxMinutes": 15,
+  "maxParallel": 2,
+  "workerMax": 2,
+  "defaultBudgetTokens": 2500000,
+  "flagWaitMinutes": 30,
+  "poolRefreshMinutes": 5,
+  "upgradeAfterMinutes": 15,
+  "upgradeOnce": true
+}

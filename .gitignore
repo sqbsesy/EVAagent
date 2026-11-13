@@ -4,6 +4,9 @@ data/
 dist/
 node_modules/
 
+# 改配置前的本地备份
+_backup/
+
 # 凭据与环境
 .env
 .env.*
@@ -11,7 +14,7 @@ node_modules/
 *.secret
 .credentials*
 
-# 日志与临时
+# 日志与临时文件
 *.log
 *.tmp
 .tmp/
