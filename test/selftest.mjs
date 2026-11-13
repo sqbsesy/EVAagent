@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { extractJson } from '../lib/jsonx.mjs'
 import { Ledger, BudgetStop } from '../lib/ledger.mjs'
 import { composeRecon, composeWorker } from '../lib/prompts.mjs'
-import { orchestrate, orderStages } from '../lib/run.mjs'
+import { orchestrate, orderStages, stageSeconds } from '../lib/run.mjs'
 import { MockBridge } from '../lib/sdk.mjs'
 import { listFiles, renderFileList, resolveChallenge, findProbes, renderProbes } from '../lib/context.mjs'
 import { effectiveRunBudget, spentFromRuns, admitTurn } from '../lib/budget.mjs'
@@ -453,6 +453,14 @@ await test('提示词：--notes 前情同时注入 recon 与 worker', async () =
     hint: 'PRIOR_KNOWLEDGE_42',
   })
   assert.ok(worker.includes('PRIOR_KNOWLEDGE_42'), 'worker prompt should carry hint')
+})
+
+await test('stageSeconds：按段声明取墙钟，缺省用全局值并被 1200 封顶', () => {
+  assert.equal(stageSeconds({ maxSeconds: 900 }, 600), 900)
+  assert.equal(stageSeconds({ maxSeconds: 0 }, 600), 600)
+  assert.equal(stageSeconds({}, 600), 600)
+  assert.equal(stageSeconds({ maxSeconds: 5000 }, 600), 1200)
+  assert.equal(stageSeconds({ maxSeconds: 10 }, 600), 60)
 })
 
 console.log('')
