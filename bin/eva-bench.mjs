@@ -53,7 +53,7 @@ function usage() {
   --stage-seconds <n>  串行阶段单段墙钟（默认 600 秒）
   --dry-run            用 mock 跑
   --ignore-prior       不扣本题历史用量（重新计时）
-  --max-seconds <n>    单题墙钟上限（默认 3600；verifier 慢，1800 常被截断）
+  --max-seconds <n>    单题墙钟上限（默认 1800 = 30 分钟）
   --help               显示本帮助
 
 遇到余额/适配器/配置类失败会立即中止后续题目，避免空转烧配额。`)
@@ -83,7 +83,7 @@ if (!challenges.length) {
 }
 
 const outRoot = path.resolve(typeof args.out === 'string' ? args.out : path.join(ROOT, 'runs'))
-const maxSeconds = Number(args['max-seconds'] ?? 3600) || 3600
+const maxSeconds = Number(args['max-seconds'] ?? 1800) || 1800
 const workspace = path.resolve(typeof args.workspace === 'string' ? args.workspace : findWorkspace(process.cwd()))
 const benchDir = path.join(outRoot, `bench-${nowStamp()}`)
 fs.mkdirSync(benchDir, { recursive: true })
@@ -101,6 +101,8 @@ for (const challenge of challenges) {
   if (args.scaffold) argv.push('--scaffold')
   if (args.staged) argv.push('--staged')
   if (args['stage-seconds']) argv.push('--stage-seconds', String(args['stage-seconds']))
+  // 让子进程自己按 30 分钟配额收缩各段，别等 bench 到点强杀（强杀拿不到 result.json）。
+  argv.push('--max-seconds', String(maxSeconds - 60))
   // live provider 透传：bench 与单题用同一套 patch/provider/model。
   if (args.notes) argv.push('--notes', String(args.notes))
   for (const key of ['patch', 'provider', 'model']) {
@@ -129,6 +131,39 @@ for (const challenge of challenges) {
   if (line) {
     try {
       parsed = JSON.parse(line)
+    } catch {
+      parsed = null
+    }
+  }
+  // 被 --max-seconds 杀掉的进程没有 JSON：从本轮最新的 runs/ 目录读出已有台账，至少报出真实花费。
+  if (!parsed) {
+    try {
+      const dirs = fs
+        .readdirSync(outRoot, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && /^\d{8}-/.test(e.name))
+        .map((e) => ({ name: e.name, st: fs.statSync(path.join(outRoot, e.name)) }))
+        .filter((x) => x.st.ctimeMs >= started)
+        .sort((a, b) => b.st.ctimeMs - a.st.ctimeMs)
+      const latest = dirs[0]
+      if (latest) {
+        const dir = path.join(outRoot, latest.name)
+        const ledger = (() => {
+          try { return JSON.parse(fs.readFileSync(path.join(dir, 'ledger.json'), 'utf8')) } catch { return null }
+        })()
+        const result = (() => {
+          try { return JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8')) } catch { return null }
+        })()
+        parsed = {
+          runId: result?.runId ?? latest.name,
+          status: result?.status ?? 'killed',
+          verdict: result?.verdict ?? null,
+          candidate: Boolean(result?.candidate),
+          spent: Number(result?.spent ?? ledger?.total ?? 0) || 0,
+          spentTotal: Number(result?.spentTotal ?? ledger?.effectiveTotal ?? ledger?.total ?? 0) || 0,
+          estimated: Number(ledger?.estimated ?? 0) || 0,
+          reasons: [`被单题上限 ${maxSeconds}s 终止`],
+        }
+      }
     } catch {
       parsed = null
     }

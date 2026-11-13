@@ -48,7 +48,8 @@ function usage() {
   --workers <n>       覆盖并发上限（默认 2，受内存约束）
   --scaffold          解题前先跑一轮脚手架（协议/工具摸底 + 可复用脚本）
   --staged            串行阶段模式：按 dependsOn 逐段执行，每段 10 min 硬超时且必须落盘
-  --stage-seconds <n> 覆盖串行阶段单段墙钟（默认 600 秒）
+  --stage-seconds <n> 覆盖串行阶段单段墙钟（默认 420 秒）
+  --max-seconds <n>   整题墙钟上限（默认 0=不限；设了以后每段按剩余时间自动收缩，保证整轮不被砍）
   --model <id>        覆盖模型（默认沿用 sdk profile）
   --provider <id>     覆盖 provider
   --patch <file>      传给 sdk 运行时的 --patch 覆盖层（给 sdk 档加 provider 适配器）
@@ -104,6 +105,8 @@ const submitPolicy = readJson(submitFile)
 if (args.budget) budgetConfig.perRunTokens = Number(args.budget)
 if (args.scaffold) budgetConfig.scaffold = true
 if (args.staged) budgetConfig.staged = true
+const maxSeconds = Number(args['max-seconds'] ?? 0) || 0
+if (args['max-seconds'] !== undefined && (!Number.isFinite(maxSeconds) || maxSeconds < 120)) fail('--max-seconds 必须是 >= 120 的秒数')
 if (args['stage-seconds']) {
   const secs = Number(args['stage-seconds'])
   if (!Number.isFinite(secs) || secs < 60) fail('--stage-seconds 必须是 >= 60 的秒数')
@@ -181,6 +184,7 @@ const result = await orchestrate({
   taskText,
   hintText,
   priorSpent: prior.total,
+  deadlineMs: maxSeconds > 0 ? started + maxSeconds * 1000 : 0,
   logger: args.json ? () => {} : (line) => console.log(line),
 })
 const elapsed = Math.round((Date.now() - started) / 1000)

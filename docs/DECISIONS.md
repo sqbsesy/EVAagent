@@ -1,4 +1,4 @@
-﻿# 决策记录
+# 决策记录
 
 ## 已定（2026-11-10，用户 D1–D3）
 
@@ -194,3 +194,15 @@ node bin/eva-bench.mjs --challenges easycap,bluetrace,lfsr --ignore-prior \
 
 `policies/budget.json` v2：新增 `verifierTokens: 300000`、`stagedTurnSec: 600`、`reserveShare: 0.2`、`scaffold: false`。
 新增事件已写进 README「三个调度机制」表；`env` 仍只认 `EVA_DSH_*`，无新增密钥。
+## 单题 30 分钟上限与墙钟感知调度（2026-11-13）
+
+- `--max-seconds` 语义从 "bench 强杀" 改为 "整题墙钟配额"：eva-super 收到后按剩余时间 / 剩余段数给每段算超时
+  （当前段 ×1.3 余量，下限 240 s，上限 1200 s），预算不够时抛 `BudgetStop` 正常收尾，不再被 bench 砍掉。
+- 串行段基础 `stagedTurnSec` 540 → 420；recon 提示词要求每段 360–420 s、最后一段 720 s、计划最多 3 步。
+- 阶段成链（`plan/chained`）：即使 recon 给出并列 dependsOn，也强制串成链，前段失败后面全部跳过。
+- 产物认领（`stage/adopt` / `stage/adopt-partial`）：worker 把产物叫成 `surface.json`、`answer.txt` 时，
+  取本段最新 json/txt/md（>200 B）复制成 artifact 名；超时但产物已落盘时按部分成功继续，不再整轮白烧。
+- staged 模式关闭低置信回炉（`rounds` 只对并行模式生效）：回炉在有限墙钟下只会再烧一段。
+- 实测：`bench-20261113053805` 用 1642 s / 880,028 tok 跑完 recon + t1 + t2 + t3（三段都靠认领续链），
+  t1 只写 `stage_inputs.json`、t2 `carriers.json`、t3 `answer.txt`（pcapng 结构报告），无候选 → reject；
+  回炉段（240 s）已由本次修复去掉。
